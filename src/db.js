@@ -6,22 +6,44 @@
 // 上层只面对同一套 query 接口与标准 SQL。
 
 let pool;
-const isMemory = !process.env.DATABASE_URL;
+const isMemory = !(process.env.DATABASE_URL || '').trim();
 
 async function initPool() {
-  if (process.env.DATABASE_URL) {
+  const databaseUrl = (process.env.DATABASE_URL || '').trim();
+
+  if (databaseUrl) {
     const { Pool } = require('pg');
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      // Render 内部网络连接无需 SSL；如用 External URL 本地连接，可在连接串带 sslmode=require
+      connectionString: databaseUrl,
+      // Render 同区域 Internal URL 可直接连接；PGSSL=true 可显式启用 TLS。
       ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : undefined,
     });
-  } else {
-    const { newDb } = require('pg-mem');
-    const mem = newDb();
-    const { Pool } = mem.adapters.createPg();
-    pool = new Pool();
+    return;
   }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'NODE_ENV=production 时必须设置 DATABASE_URL。' +
+      '请先创建 PostgreSQL，再在 Render Web Service 的 Environment 中填写 Internal Database URL，保存并重新部署。'
+    );
+  }
+
+  let newDb;
+  try {
+    ({ newDb } = require('pg-mem'));
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND' && err.message.includes("Cannot find module 'pg-mem'")) {
+      throw new Error(
+        '本地内存模式需要 pg-mem。请先 npm install --include=dev，再运行 npm start；生产部署请设置 DATABASE_URL。',
+        { cause: err }
+      );
+    }
+    throw err;
+  }
+
+  const mem = newDb();
+  const { Pool } = mem.adapters.createPg();
+  pool = new Pool();
 }
 
 async function query(text, params) {

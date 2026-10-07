@@ -17,11 +17,15 @@
 ## 一、本地运行（可选，用于先看效果）
 
 ```bash
-npm install
+npm install --include=dev
 npm start
 ```
 
 打开 http://localhost:3000 。未配置数据库时使用内存库，**重启即清空**，仅用于本地预览。
+
+本地预览不要设置 `NODE_ENV=production`。生产环境必须配置 `DATABASE_URL`，否则启动会直接给出配置提示，不会退回内存库。
+
+运行 `npm test` 可检查生产环境缺少连接串、PostgreSQL 分支选择、本地缺依赖提示和内存库建表/读写。
 
 ---
 
@@ -49,7 +53,7 @@ git push -u origin main
 1. 打开 https://dashboard.render.com 登录
 2. 右上角 **New +** → **Blueprint**
 3. 选择刚才的仓库（首次需授权 GitHub），分支选 `main`
-4. 直接点 **Apply**
+4. 检查数据库与 Web Service 的 Region 相同，再点 **Apply**
 
 Render 会自动创建：
 
@@ -59,10 +63,28 @@ Render 会自动创建：
 部署完成后得到地址，形如 `https://couple-connect-xxxx.onrender.com`。
 首次启动会自动建好所有数据表，无需手动建表或迁移。
 
-> 备选（手动）：New + → PostgreSQL 先建库，再 New + → Web Service，
-> Build Command 填 `npm install --omit=dev`，Start Command 填 `node src/server.js`，
-> 并在 Environment 里加 `DATABASE_URL`（数据库的 Internal Database URL）、
-> `NODE_ENV=production`、`JWT_SECRET`（随机长字符串）。
+**如果已经单独创建了 Web Service，直接配置现有服务即可。** 仓库包含 `render.yaml` 不等于现有 Web Service 已使用 Blueprint；手动创建的服务仍需手动关联数据库。
+
+1. Render → **New + → Postgres**（部分界面显示 PostgreSQL），数据库名称可用 `couple-connect-db`。选择与现有 Web Service **相同的 Region**，等状态变为 `Available`。已有可用数据库则直接使用。
+2. 打开数据库页面 → **Connect → Internal**（或 Info 页面中的 Internal Database URL），复制完整连接串。
+3. 打开现有 Web Service → **Settings**，确认仓库为 `Synex1213/to-gether-do`，分支为 `main`，Runtime 为 Node，Root Directory 留空（项目位于仓库根目录），Build Command 为 `npm install --omit=dev`，Start Command 为 `node src/server.js`。Health Check Path 可填 `/api/health`。
+4. Web Service → **Environment**，添加下面三个变量。连接串和密钥填写实际值，不要包含尖括号或额外引号：
+
+   | Key | Value |
+   |---|---|
+   | `DATABASE_URL` | 第 2 步复制的完整 Internal Database URL |
+   | `JWT_SECRET` | 随机长字符串，已经设置过则保留原值 |
+   | `NODE_ENV` | `production` |
+
+   密钥可在本机生成：`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。不要提交连接串或密钥到 GitHub。此项目直接读取进程环境变量，不会自动加载本地 `.env` 文件。
+5. 选择 **Save, rebuild, and deploy**。若环境变量已经保存但尚未部署，可用 **Manual Deploy → Deploy latest commit**。
+6. Logs 应出现 `Couple Connect running ... (store: postgres)`。访问 `https://你的服务地址/api/health` 应返回 `{"ok":true,"store":"postgres"}`。注册账号并创建任务后重启服务，再登录确认数据仍在。
+
+同区域 Internal URL 通常无需额外设置 `PGSSL`，保留默认值即可。代码仍支持用 `PGSSL=true` 显式启用 TLS。
+
+Render 的 Free PostgreSQL 在创建 30 天后到期，之后有 14 天升级宽限期，宽限期结束会删除数据库。长期保存打卡记录应使用付费 PostgreSQL。`render.yaml` 保留原有 Free 配置用于试用，未自动更改计费方案。
+
+参考：[Render 数据库连接](https://render.com/docs/postgresql-creating-connecting)、[环境变量保存与部署](https://render.com/docs/configure-environment-variables)、[Free PostgreSQL 限制](https://render.com/docs/free#free-postgres)。
 
 ### 3. 两人开始使用
 
@@ -95,6 +117,7 @@ Render 会自动创建：
 | `DATABASE_URL` | 是 | PostgreSQL 连接串，Blueprint 自动关联 |
 | `JWT_SECRET` | 是 | 登录令牌密钥，Blueprint 用 `generateValue` 自动生成 |
 | `NODE_ENV` | 是 | 生产环境设为 `production` |
+| `PGSSL` | 否 | `true` 时显式启用 TLS；Render 同区域 Internal URL 可保持未设置 |
 
 ---
 
@@ -102,5 +125,33 @@ Render 会自动创建：
 
 - **免费版第一次打开很慢 / 偶尔要等**：Render Free 服务闲置约 15 分钟会休眠，冷启动约需 30–50 秒。介意可在服务设置里升级到 Starter 计划。
 - **接口报错 / 数据不保存**：查看 Render 服务 Logs，确认 `DATABASE_URL` 已关联、数据库状态正常。
+- **启动提示必须设置 DATABASE_URL**：确认变量加在 Web Service 的 Environment 中，变量名为 `DATABASE_URL`，值不是空白；保存后重新部署。
+- **本地启动提示缺少 pg-mem**：运行 `npm install --include=dev`。`pg-mem` 仅用于本地预览，生产环境继续使用 `npm install --omit=dev`。
 - **登录很快失效**：确认 `JWT_SECRET` 已设置且不要频繁更换（更换会使所有登录失效）。
 - **想本地连真实 PostgreSQL**：设置环境变量 `DATABASE_URL=postgresql://用户:密码@主机:5432/couple_connect` 后再 `npm start`。
+
+## Git 推送通过本机代理（Windows / PowerShell）
+
+在本机项目目录执行，保持 Clash 正在运行且代理端口为 `7897`。下面命令适用于 HTTPS 远程仓库：
+
+```powershell
+Test-NetConnection 127.0.0.1 -Port 7897
+git remote -v
+git -c http.proxy=http://127.0.0.1:7897 ls-remote origin
+git -c http.proxy=http://127.0.0.1:7897 push origin main
+```
+
+`-c` 只影响当前命令，命令结束后代理配置自动失效，无需执行取消命令。它不会修改本机原有 Git 配置。`http.proxy` 同样适用于 HTTPS 仓库，不需要关闭证书校验。若远程地址是 SSH，可先改为本项目的 HTTPS 地址：
+
+```powershell
+git remote set-url origin https://github.com/Synex1213/to-gether-do.git
+```
+
+如果之前手动设置过全局代理，希望取消那些旧配置，可执行（未设置的键提示不存在是正常的）：
+
+```powershell
+git config --global --unset-all http.proxy
+git config --global --unset-all https.proxy
+```
+
+`Test-NetConnection github.com -Port 443` 检查的是直连，不会使用 Git 的 `-c` 代理；其结果为 `False` 时，经代理推送仍可能成功。
