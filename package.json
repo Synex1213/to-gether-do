@@ -1,24 +1,40 @@
 {
-  "name": "couple-connect",
+  "name": "couple-widget",
   "version": "1.0.0",
-  "private": true,
-  "description": "情侣远程任务打卡与互动应用（Render-ready，零平台私有依赖）",
-  "main": "src/server.js",
-  "engines": {
-    "node": ">=18.0.0"
-  },
+  "description": "伙伴打卡桌面悬浮小窗",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node src/server.js",
-    "test": "node --test"
-  },
-  "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.1"
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win"
   },
   "devDependencies": {
-    "pg-mem": "^3.0.5"
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.couple.widget",
+    "productName": "伙伴打卡",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "widget/**/*",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
