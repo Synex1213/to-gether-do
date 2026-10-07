@@ -1,0 +1,19 @@
+{
+  "name": "两个人的打卡",
+  "short_name": "情侣打卡",
+  "description": "情侣远程任务打卡、状态与互相批阅",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fff6f8",
+  "theme_color": "#f06d8b",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
