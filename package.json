@@ -1,16 +1,29 @@
+
 {
-  "name": "couple-widget",
+  "name": "couple-connect",
   "version": "1.0.0",
-  "description": "伙伴打卡桌面悬浮小窗",
+  "private": true,
+  "description": "情侣任务打卡网页与桌面小组件",
   "main": "main.js",
-  "author": "",
-  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
-    "start": "electron .",
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "test": "node --test",
+    "desktop": "electron .",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win"
   },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  },
   "devDependencies": {
+    "pg-mem": "^3.0.5",
     "electron": "^31.3.1",
     "electron-builder": "^24.13.3"
   },
