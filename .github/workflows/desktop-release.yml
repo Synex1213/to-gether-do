@@ -1,0 +1,41 @@
+name: Publish Windows desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate tag matches app version
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Git tag $env:GITHUB_REF_NAME does not match package.json version v$version"
+          }
+      - name: Install dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Run tests
+        run: npm test
+      - name: Build and upload NSIS installer and latest.yml
+        run: npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - name: Publish release only after all assets have uploaded
+        shell: pwsh
+        run: gh release edit $env:GITHUB_REF_NAME --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

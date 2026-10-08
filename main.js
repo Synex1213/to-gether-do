@@ -1,11 +1,13 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog } = require('electron');
+const { createAutoUpdateController } = require('./desktop/updater');
 const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
 let tray = null;
+let updateController = { checkForUpdates: async () => false };
 
 const configPath = () => path.join(app.getPath('userData'), 'config.json');
 
@@ -68,6 +70,11 @@ function updateTrayMenu() {
       },
     },
     { type: 'separator' },
+    {
+      label: '检查软件更新',
+      enabled: app.isPackaged && process.platform === 'win32',
+      click: () => { void updateController.checkForUpdates(true); },
+    },
     {
       label: '始终置顶',
       type: 'checkbox',
@@ -148,6 +155,10 @@ if (!gotLock) {
   app.whenReady().then(() => {
     createWindow();
     createTray();
+    if (app.isPackaged && process.platform === 'win32') {
+      const { autoUpdater } = require('electron-updater');
+      updateController = createAutoUpdateController({ app, dialog, autoUpdater });
+    }
     const cfg = readConfig();
     if (cfg.autoLaunch) app.setLoginItemSettings({ openAtLogin: true });
   });
