@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog } = require('electron');
 const { createAutoUpdateController } = require('./desktop/updater');
+const { normalizeConfig } = require('./desktop/config');
 const path = require('path');
 const fs = require('fs');
 
@@ -13,10 +14,9 @@ const configPath = () => path.join(app.getPath('userData'), 'config.json');
 
 function readConfig() {
   try {
-    const saved = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
-    return { ...saved, apiBase: saved.apiBase || 'https://to-gether-do.onrender.com' };
+    return normalizeConfig(JSON.parse(fs.readFileSync(configPath(), 'utf8')));
   } catch (e) {
-    return { apiBase: 'https://to-gether-do.onrender.com', autoLaunch: false, alwaysOnTop: true };
+    return normalizeConfig();
   }
 }
 
