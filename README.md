@@ -42,7 +42,7 @@ npm test
 npm run dist:win
 ```
 
-Windows 构建产物在 `dist/`，GitHub 的 Windows CI 也会上传安装包。仓库的标签发布流程会生成 GitHub Release 与桌面自动更新所需文件，已有发布流水线保留。
+Windows 构建产物在 `dist/`，GitHub 的 Windows CI 也会上传安装包。版本号更新合并到 main 后，发布流程会固定版本标签、运行测试，再生成 GitHub Release 与桌面自动更新所需文件；也支持标签触发与手动重试。已发布的版本不会覆盖或移动标签。
 
 默认服务地址为 `https://to-gether-do-2.onrender.com`。旧的无后缀和 `-1` 地址会自动迁移到该地址，用户自定义地址会保留。
 
