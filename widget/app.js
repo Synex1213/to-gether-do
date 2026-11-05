@@ -5,6 +5,7 @@ const toastEl = document.getElementById('toast');
 
 const state = {
   config: null,
+  refreshing: false,
   token: localStorage.getItem('token') || '',
   me: null,
   pairInfo: null,
@@ -59,7 +60,7 @@ async function api(path, opts = {}) {
   if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
   const res = await fetch(base + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败 (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `请求失败 (${res.status})`), { status: res.status });
   return data;
 }
 
@@ -133,16 +134,16 @@ function renderAuth() {
 }
 
 function renderPair() {
-  const waiting = state.pairInfo && state.pairInfo.status === 'waiting';
+  const waiting = state.pairInfo && ['waiting', 'pending'].includes(state.pairInfo.status);
   const myCode = waiting ? state.pairInfo.code : null;
   content.innerHTML = `
     <div class="card">
-      <div class="card-title">🤝 绑定伙伴</div>
+      <div class="card-title">🤝 绑定伙伴</div><p class="muted">一次与一位伙伴共享日常，可以随时解除绑定。</p>
       ${myCode ? `
         <div class="muted text-center">把你的配对码发给 TA</div>
         <div class="pair-code">${myCode}</div>
         <div class="muted text-center mb8">等待 TA 加入…</div>
-        <button class="btn btn-ghost btn-block btn-sm" id="pair-refresh">刷新状态</button>
+        <button class="btn btn-ghost btn-block btn-sm" id="pair-refresh">刷新状态</button><button class="btn btn-ghost btn-block btn-sm" id="pair-cancel">取消邀请 / 输入对方配对码</button>
       ` : `
         <button class="btn btn-block mb8" id="pair-create">生成我的配对码</button>
         <div class="muted text-center mb8">—— 或 ——</div>
@@ -155,6 +156,9 @@ function renderPair() {
 }
 
 function renderMain() {
+  renderPreservingDrafts(content, renderMainContent);
+}
+function renderMainContent() {
   const myStatus = state.myStatus || {};
   const partnerStatus = state.partnerStatus || {};
   const myTasks = state.tasks.filter((t) => t.owner_id === state.me.id);
@@ -168,23 +172,42 @@ function renderMain() {
       <div class="partner-card">
         <div class="partner-avatar">${escapeHtml((partnerName || '?')[0])}</div>
         <div class="partner-info">
-          <div class="partner-name">${escapeHtml(partnerName)} ${partnerStatus.online ? '<span class="online-dot"></span><span class="muted">在线</span>' : '<span class="muted">离线</span>'}</div>
-          <div class="partner-meta">${labelOf(MOODS, partnerStatus.mood)} · ${labelOf(FOCUS, partnerStatus.focus)} · ${labelOf(ACTIVITY, partnerStatus.activity)}</div>
+          <div class="partner-name">${escapeHtml(partnerName)} ${partnerStatus.online ? '<span class="online-dot"></span><span class="muted">最近使用过应用</span>' : '<span class="muted">暂未活跃</span>'}</div>
+          <div class="current-activity">${escapeHtml(partnerStatus.custom_activity || labelOf(ACTIVITY, partnerStatus.activity))}</div>
+          <div class="partner-meta">${labelOf(FOCUS, partnerStatus.focus)} · ${relativeStatusTime(partnerStatus.updated_at)}</div>
+          <div class="muted">${Date.now() - Date.parse(partnerStatus.updated_at) > 7200000 ? '这是上次分享的状态，可能已经变化' : '状态由本人主动分享'}</div>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">我的状态</div>
+      <div class="card-title">我正在做什么</div>
+      <div class="task-add"><input class="input" id="current-activity" maxlength="100" placeholder="比如：复习时间序列第三章"><button class="btn" id="activity-save">分享</button></div>
+      <div class="muted">${escapeHtml(myStatus.custom_activity || labelOf(ACTIVITY, myStatus.activity))} · ${relativeStatusTime(myStatus.updated_at)}</div>
       <div class="status-row">
-        ${FOCUS.map((f) => `<span class="chip ${myStatus.focus === f.k ? 'active' : ''} ${f.k === 'slacking' ? 'slacking' : ''}" data-set-focus="${f.k}">${f.label}</span>`).join('')}
+        ${FOCUS.map((f) => `<button class="chip ${myStatus.focus === f.k ? 'active' : ''} ${f.k === 'slacking' ? 'slacking' : ''}" data-set-focus="${f.k}">${f.label}</button>`).join('')}
       </div>
       <div class="status-row">
-        ${ACTIVITY.map((a) => `<span class="chip ${myStatus.activity === a.k ? 'active' : ''}" data-set-activity="${a.k}">${a.label}</span>`).join('')}
+        ${ACTIVITY.map((a) => `<button class="chip ${myStatus.activity === a.k ? 'active' : ''}" data-set-activity="${a.k}">${a.label}</button>`).join('')}
       </div>
     </div>
 
+    <details id="daily-tasks" class="card"><summary>今日计划 · 我 ${myDone}/${myTasks.length} · TA ${partnerDone}/${partnerTasks.length}</summary>
     <div class="card">
+      <div class="card-title">✅ 我今天 (${myDone}/${myTasks.length})</div>
+      <div class="task-add">
+        <input class="input" maxlength="500" id="task-input" placeholder="给自己加一个任务…">
+        <button class="btn" id="task-add">添加</button>
+      </div>
+      ${myTasks.length ? myTasks.map(renderTaskItem).join('') : '<div class="empty">还没有任务</div>'}
+    </div>
+
+    <div class="card">
+      <div class="card-title">👀 TA 今天 (${partnerDone}/${partnerTasks.length})</div>
+      ${partnerTasks.length ? partnerTasks.map(renderTaskItem).join('') : '<div class="empty">TA 还没有定任务</div>'}
+    </div>
+    </details>
+    <details id="small-interactions" class="card"><summary>一起休息 · 小互动</summary>    <div class="card">
       <div class="card-title">🐟 摸鱼 & 抓包</div>
       <div class="slack-row">
         ${myStatus.focus === 'slacking'
@@ -200,19 +223,12 @@ function renderMain() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">✅ 我今天 (${myDone}/${myTasks.length})</div>
-      <div class="task-add">
-        <input class="input" id="task-input" placeholder="给自己加一个任务…">
-        <button class="btn" id="task-add">添加</button>
-      </div>
-      ${myTasks.length ? myTasks.map(renderTaskItem).join('') : '<div class="empty">还没有任务</div>'}
-    </div>
-
-    <div class="card">
-      <div class="card-title">👀 TA 今天 (${partnerDone}/${partnerTasks.length})</div>
-      ${partnerTasks.length ? partnerTasks.map(renderTaskItem).join('') : '<div class="empty">TA 还没有定任务</div>'}
-    </div>
+</details>
+    <details id="companion-settings" class="card"><summary>设置与伙伴</summary>
+      <p class="muted">一次与一位伙伴共享日常；解除后双方停止共享，原任务不会展示给新伙伴。</p>
+      <button class="btn btn-ghost btn-block" id="pair-unbind">解除当前绑定</button>
+      <button class="btn btn-ghost btn-block" id="logout">退出登录</button>
+    </details>
   `;
 }
 
@@ -232,16 +248,16 @@ function renderTaskItem(t) {
             <div class="review-emojis">
               ${Object.entries(EMOJI).map(([k, v]) => `<button class="review-emoji-btn ${state.reviewEmoji === k ? 'active' : ''}" data-emoji="${k}">${v}</button>`).join('')}
             </div>
-            <input class="input" id="review-comment" placeholder="留一句话…" value="${review ? escapeHtml(review.comment || '') : ''}">
+            <input class="input" maxlength="300" id="review-comment" placeholder="留一句话…" value="${review ? escapeHtml(review.comment || '') : ''}">
             <div class="mt8" style="display:flex;gap:6px">
-              <button class="btn btn-sm" data-review-submit="${t.id}">提交批阅</button>
+              <button class="btn btn-sm" data-review-submit="${t.id}">提交回应</button>
               <button class="btn btn-ghost btn-sm" data-review-cancel>取消</button>
             </div>
           </div>
         ` : ''}
       </div>
       <div class="task-actions">
-        ${!isMine ? `<button class="icon-btn" title="批阅" data-review-open="${t.id}">✏️</button>` : ''}
+        ${!isMine ? `<button class="icon-btn" title="回应" data-review-open="${t.id}">✏️</button>` : ''}
         ${isMine ? `<button class="icon-btn" title="删除" data-task-del="${t.id}">🗑</button>` : ''}
       </div>
     </div>
@@ -250,30 +266,50 @@ function renderTaskItem(t) {
 
 // ===== 数据加载 =====
 async function refreshAll() {
+  if (state.refreshing) return;
+  state.refreshing = true;
   try {
-    const [meRes, pairRes, tasksRes, statusRes, slackRes] = await Promise.all([
-      api('/api/auth/me'),
-      api('/api/pair/'),
-      api('/api/tasks?date=' + today()),
-      api('/api/status'),
-      api('/api/slack/stats'),
-    ]);
+    const meRes = await api('/api/auth/me');
+    const pairRes = await api('/api/pair/');
+    if (state.pairInfo?.pairId !== pairRes.pairId) content.innerHTML = '';
     state.me = meRes.user;
     state.pairInfo = pairRes;
     state.partner = pairRes.partner || null;
-    state.tasks = tasksRes.tasks || [];
-    state.myStatus = statusRes.mine;
-    state.partnerStatus = statusRes.theirs;
-    state.slackStats = slackRes.stats || {};
+    if (pairRes.status === 'active') {
+      const [tasksRes, statusRes, slackRes] = await Promise.all([
+        api('/api/tasks?date=' + today()), api('/api/status'), api('/api/slack/stats'),
+      ]);
+      state.tasks = tasksRes.tasks || [];
+      state.myStatus = statusRes.mine;
+      state.partnerStatus = statusRes.theirs;
+      state.slackStats = slackRes.stats || {};
+    } else { state.tasks = []; state.myStatus = null; state.partnerStatus = null; }
+    render();
   } catch (e) {
-    console.warn('refresh failed', e.message);
-  }
-  render();
+    if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); state.pairInfo = null; render(); }
+    else { toast('暂时无法同步，请检查网络后重试'); if (state.phase !== 'main') render(); }
+  } finally { state.refreshing = false; }
 }
 
 // ===== 事件 =====
 content.addEventListener('click', async (e) => {
   const t = e.target;
+  if (t.id === 'logout') {
+    state.token = ''; localStorage.removeItem('token'); state.me = null; state.pairInfo = null;
+    content.innerHTML = ''; render(); return;
+  }
+  if (['pair-unbind', 'pair-cancel'].includes(t.id)) {
+    if (t.id === 'pair-unbind' && !confirm('解除后双方停止共享状态和任务。历史记录保留且不向新伙伴展示。确定解除？')) return;
+    try { await api('/api/pair/', { method: 'DELETE' }); state.pairInfo = null; content.innerHTML = ''; await refreshAll(); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.id === 'activity-save') {
+    const input = document.getElementById('current-activity');
+    const value = input.value.trim();
+    if (!value) { toast('写一句你正在做什么吧'); return; }
+    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ customActivity: value }) }); input.value = ''; await refreshAll(); } catch (err) { toast(err.message); }
+    return;
+  }
 
   if (t.id === 'setup-save') {
     const val = document.getElementById('setup-api').value.trim();
@@ -334,7 +370,7 @@ content.addEventListener('click', async (e) => {
     return;
   }
   if (t.dataset.setActivity) {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: t.dataset.setActivity }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: t.dataset.setActivity, customActivity: '' }) }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
 
@@ -372,9 +408,9 @@ content.addEventListener('click', async (e) => {
   if (t.dataset.reviewSubmit) {
     const comment = document.getElementById('review-comment').value.trim();
     try {
-      await api('/api/reviews', { method: 'PUT', body: JSON.stringify({ task_id: t.dataset.reviewSubmit, emoji: state.reviewEmoji, comment }) });
+      await api('/api/reviews', { method: 'PUT', body: JSON.stringify({ taskId: t.dataset.reviewSubmit, emoji: state.reviewEmoji, comment }) });
       state.reviewOpenTaskId = null;
-      toast('批阅已发送');
+      toast('回应已发送');
       await refreshAll();
     } catch (err) { toast(err.message); }
     return;
@@ -384,6 +420,7 @@ content.addEventListener('click', async (e) => {
 content.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'task-input') addTask();
+  if (e.target.id === 'current-activity') document.getElementById('activity-save')?.click();
   if (e.target.id === 'auth-username' || e.target.id === 'auth-password' || e.target.id === 'auth-display') {
     document.getElementById('auth-submit')?.click();
   }
@@ -406,7 +443,7 @@ document.getElementById('btn-min').addEventListener('click', () => window.widget
 document.getElementById('btn-close').addEventListener('click', () => window.widget.hide());
 
 // 轮询
-setInterval(() => { if (state.phase === 'main') refreshAll(); }, 15000);
+setInterval(() => { if (state.token && document.visibilityState === 'visible' && !content.querySelector('input:focus, textarea:focus')) refreshAll(); }, 6000);
 
 // 启动
 (async () => {

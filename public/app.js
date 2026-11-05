@@ -49,7 +49,7 @@ function fmtDate(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 function todayStr() {
-  return fmtDate(new Date());
+  return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
 }
 function shiftDate(s, delta) {
   const d = new Date(s + 'T00:00:00');
@@ -125,8 +125,20 @@ function loadSlack() {
     }
   );
 }
-function refreshAll() {
-  return Promise.all([loadTasks(), loadStatus(), loadSlack()]);
+async function refreshAll() {
+  const previousPair = state.pair?.pairId;
+  state.pair = await api('GET', '/pair');
+  if (state.pair.status !== 'active') {
+    state.data = null; state.status = null; state.slack = null;
+    clearInterval(pollTimer); render();
+    if (state.pair.status === 'waiting') startPairPolling();
+    return;
+  }
+  if (previousPair && previousPair !== state.pair.pairId) {
+    state.data = null; state.status = null; state.slack = null;
+    document.getElementById('app').innerHTML = '';
+  }
+  await Promise.all([loadTasks(), loadStatus(), loadSlack()]);
 }
 
 /* ---------------- 渲染路由 ---------------- */
@@ -141,8 +153,6 @@ function render() {
 
 /* 刷新时若焦点在输入框则跳过，避免打字被打断 */
 function quietRender() {
-  const el = document.activeElement;
-  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
   if (state.pair && state.pair.status === 'active' && state.status && state.data && state.slack)
     renderMain();
 }
@@ -155,7 +165,7 @@ function renderAuth() {
     <div class="brand">
       <div class="logo">💞</div>
       <h1>两个人的小空间</h1>
-      <div class="muted">一起打卡，互相监督，也互相想念</div>
+      <div class="muted">看见彼此的日常，按自己的节奏前进</div>
     </div>
     <div class="tabs">
       <button class="${login ? 'active' : ''}" onclick="setAuthTab('login')">登录</button>
@@ -218,7 +228,7 @@ function renderPair() {
       <div class="pair-code">${state.pair.code}</div>
       <p class="muted" style="text-align:center;margin-top:12px">
         把这 6 位配对码发给 TA，TA 注册后输入即可绑定
-      </p>`;
+      </p><button class="btn btn-block" onclick="cancelInvitation()">取消邀请 / 输入对方配对码</button>`;
   } else {
     body = `
       <div class="brand"><div class="logo">🔗</div><h1>和 TA 绑定</h1>
@@ -266,23 +276,21 @@ function personCard(which) {
   return `
   <div class="card person">
     <div class="avatar ${isMe ? '' : 'partner'}">
-      ${isMe ? '🧑' : '👩'}<span class="dot ${st.online ? 'online' : ''}"></span>
+      ${esc((st.user.displayName || '?')[0])}<span class="dot ${st.online ? 'online' : ''}"></span>
     </div>
     <div class="meta">
       <div class="name">${esc(st.user.displayName)} ${isMe ? '<span class="muted">(我)</span>' : ''}</div>
+      <div class="current-activity">${esc(st.custom_activity || ACT_MAP[st.activity] || '尚未分享')}</div>
       <div class="badges">
         <span class="badge">${MOOD_MAP[st.mood] || st.mood}</span>
         <span class="badge ${st.focus === 'slacking' ? 'slacking' : st.focus === 'focusing' ? 'focusing' : ''}">
           ${FOCUS_MAP[st.focus] || st.focus}
         </span>
-        <span class="badge">${
-          st.activity === 'idle' && st.custom_activity
-            ? esc(st.custom_activity)
-            : ACT_MAP[st.activity] || st.activity
-        }</span>
+
       </div>
       <div class="muted" style="margin-top:5px;font-size:11.5px">
-        ${st.online ? '在线' : '上次活跃 ' + relTime(st.last_active_at)}
+        ${relativeStatusTime(st.updated_at)} · ${st.online ? '最近使用过应用' : '上次活跃 ' + relTime(st.last_active_at)}
+        ${Date.now() - Date.parse(st.updated_at) > 7200000 ? ' · 状态可能已变化' : ''}
       </div>
       ${!isMe && st.focus === 'slacking'
         ? '<button class="btn btn-sm catch-btn" onclick="catchSlack()">🐟 抓包！</button>'
@@ -302,15 +310,18 @@ function seg(label, key, map, current) {
 }
 function myStatusEditor() {
   const st = state.status.mine;
-  return `<div class="card"><h2>🎛️ 我的状态</h2>
+  return `<div class="card"><h2>我正在做什么</h2>
+    <form class="add-row" onsubmit="shareActivity(event)"><input class="input" name="currentActivity" maxlength="100" placeholder="比如：复习时间序列第三章" required><button class="btn btn-primary">分享</button></form>
+    <details id="status-options"><summary>快捷状态与心情</summary>
     ${seg('心情', 'mood', MOOD_MAP, st.mood)}
     ${seg('专注', 'focus', FOCUS_MAP, st.focus)}
     ${seg('正在做', 'activity', ACT_MAP, st.activity)}
+    </details>
   </div>`;
 }
 window.setStatus = async (key, val) => {
   try {
-    const r = await api('PUT', '/status', { [key]: val });
+    const r = await api('PUT', '/status', { [key]: val, ...(key === 'activity' ? { customActivity: '' } : {}) });
     state.status.mine = Object.assign({}, state.status.mine, r.status);
     render();
   } catch (e) {
@@ -457,7 +468,7 @@ window.sendComment = async (e, taskId) => {
     await api('PUT', '/reviews', { taskId, comment, emoji: old ? old.emoji : undefined });
     await loadTasks();
     render();
-    toast('已批阅');
+    toast('已回应');
   } catch (err) {
     toast(err.message);
   }
@@ -524,6 +535,9 @@ window.catchSlack = async () => {
 
 /* ---------------- 主视图组装 ---------------- */
 function renderMain() {
+  renderPreservingDrafts(document.getElementById('app'), renderMainContent);
+}
+function renderMainContent() {
   const isToday = state.date === todayStr();
   document.getElementById('app').innerHTML = `
   <div class="topbar">
@@ -538,15 +552,33 @@ function renderMain() {
       <button class="btn btn-sm btn-ghost" onclick="logout()">退出</button>
     </div>
   </div>
-  <div class="people">${personCard('mine')}${personCard('theirs')}</div>
+  <div class="people">${personCard('theirs')}${personCard('mine')}</div>
   <div style="margin-top:14px">${myStatusEditor()}</div>
-  <div class="main-grid" style="margin-top:14px">${myTasksCard()}${partnerTasksCard()}</div>
-  <div class="slack-grid">${slackControlCard()}${slackHistoryCard()}</div>`;
+  <details id="daily-tasks" class="card"><summary>今日计划与回应 · ${state.data.tasks.filter(t => t.is_completed).length}/${state.data.tasks.length} 已完成</summary>
+    <p class="muted">${isToday ? '今天的计划' : friendlyDate(state.date) + ' 的历史计划'} · 上方状态始终显示最近分享的内容</p>
+    <div class="main-grid" style="margin-top:14px">${myTasksCard()}${partnerTasksCard()}</div>
+  </details>
+  <details id="small-interactions" class="card"><summary>一起休息 · 小互动</summary><div class="slack-grid">${slackControlCard()}${slackHistoryCard()}</div></details>
+  <details id="companion-settings" class="card"><summary>伙伴设置</summary><p class="muted">一次与一位伙伴共享日常。解除后停止共享，历史任务不会展示给新伙伴。</p><button class="btn btn-ghost" onclick="unbindPartner()">解除当前绑定</button></details>`;
   if (state.deferredPrompt) {
     const b = document.getElementById('installBtn');
     if (b) b.style.display = '';
   }
 }
+window.shareActivity = async (e) => {
+  e.preventDefault();
+  try {
+    await api('PUT', '/status', { customActivity: e.target.currentActivity.value });
+    e.target.reset(); await loadStatus(); render(); toast('已分享当前状态');
+  } catch (err) { toast(err.message); }
+};
+window.cancelInvitation = async () => {
+  try { await api('DELETE', '/pair'); clearInterval(pairTimer); state.pair = { status: 'none' }; render(); } catch (e) { toast(e.message); }
+};
+window.unbindPartner = async () => {
+  if (!confirm('解除后双方停止共享状态和任务。历史记录保留且不向新伙伴展示。确定解除？')) return;
+  try { await api('DELETE', '/pair'); clearInterval(pollTimer); state.pair = { status: 'none' }; state.data = null; state.status = null; state.slack = null; document.getElementById('app').innerHTML = ''; render(); } catch (e) { toast(e.message); }
+};
 window.changeDate = (d) => {
   const next = shiftDate(state.date, d);
   if (next > todayStr()) return;
@@ -574,13 +606,14 @@ let pairTimer = null;
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    if (document.visibilityState !== 'visible') return;
+    if (document.visibilityState !== 'visible' || state.refreshing) return;
+    state.refreshing = true;
     try {
       await refreshAll();
       quietRender();
     } catch (e) {
       if (e.status === 401) window.logout();
-    }
+    } finally { state.refreshing = false; }
   }, 6000);
 }
 function startPairPolling() {

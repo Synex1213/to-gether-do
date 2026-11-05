@@ -6,6 +6,8 @@
 // 上层只面对同一套 query 接口与标准 SQL。
 
 let pool;
+let memoryDb;
+let transactionQueue = Promise.resolve();
 const isMemory = !(process.env.DATABASE_URL || '').trim();
 
 async function initPool() {
@@ -42,6 +44,7 @@ async function initPool() {
   }
 
   const mem = newDb();
+  memoryDb = mem;
   const { Pool } = mem.adapters.createPg();
   pool = new Pool();
 }
@@ -54,6 +57,33 @@ async function query(text, params) {
 async function one(text, params) {
   const rows = await query(text, params);
   return rows[0] || null;
+}
+
+// Use one connection for every statement in a pairing transaction. Memory preview
+// serializes transactions and restores a snapshot because pg-mem has no rollback.
+async function transaction(work) {
+  const run = async () => {
+    const backup = memoryDb && memoryDb.backup();
+    const client = await pool.connect();
+    const tx = {
+      query: async (sql, params = []) => (await client.query(sql, params)).rows,
+      one: async (sql, params = []) => (await client.query(sql, params)).rows[0] || null,
+    };
+    try {
+      if (!memoryDb) await client.query('BEGIN');
+      const result = await work(tx);
+      if (!memoryDb) await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      if (backup) backup.restore();
+      else await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  };
+  if (!memoryDb) return run();
+  const pending = transactionQueue.then(run, run);
+  transactionQueue = pending.catch(() => {});
+  return pending;
 }
 
 const SCHEMA_SQL = [
@@ -125,4 +155,4 @@ async function initDb() {
   }
 }
 
-module.exports = { initDb, query, one, isMemory };
+module.exports = { initDb, query, one, isMemory, transaction };
