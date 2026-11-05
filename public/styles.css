@@ -591,3 +591,5 @@ details[open] > summary { margin-bottom: 10px; }
 button:focus-visible, summary:focus-visible { outline: 2px solid #227968; outline-offset: 3px; }
 
 #daily-tasks, #small-interactions, #companion-settings { margin-top: 14px; }
+
+.sync-warning { padding: 8px 10px; margin-bottom: 12px; border-radius: 8px; background: #fff4d6; color: #705313; font-size: 12px; }
