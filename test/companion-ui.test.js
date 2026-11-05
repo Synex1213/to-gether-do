@@ -26,7 +26,7 @@ function desktop({ active = false } = {}) {
     else if (path === '/api/pair/code') data = { status: 'waiting', code: 'ABC234' };
     else if (path === '/api/pair/' && method === 'DELETE') { paired = false; data = { ok: true }; }
     else if (path === '/api/pair/') data = paired ? { status: 'active', pairId: 'pair-1', partner: { id: 'b', displayName: '伙伴' } } : { status: 'none' };
-    else if (path === '/api/tasks') data = { tasks: [{ id: 'task-b', owner_id: 'b', content: '读书', reviews: [] }] };
+    else if (path === '/api/tasks') data = { tasks: [{ id: 'task-b', owner_id: 'b', content: '读书', reviews: [] }, { id: 'task-c', owner_id: 'b', content: '写报告', reviews: [] }, { id: 'task-a', owner_id: 'a', content: '复习时间序列', reviews: [] }] };
     else if (path === '/api/status') {
       if (method === 'PUT') activity = body.customActivity || '';
       data = { mine: { activity: 'study', custom_activity: activity, updated_at: new Date().toISOString() }, theirs: { activity: 'work', custom_activity: '<script>hello</script>', focus: 'focusing', updated_at: new Date().toISOString() } };
@@ -121,5 +121,47 @@ test('web prioritizes current activity, keeps independent drafts and exits when 
     paired = false; await w.__refresh();
     assert.equal(w.document.querySelector('.current-activity'), null);
     assert.match(w.document.getElementById('app').textContent, /和 TA 绑定/);
+  } finally { dom.window.close(); }
+});
+
+test('desktop starts a task, takes a break, and isolates drafts when switching responses', async () => {
+  const { dom, w, calls } = desktop({ active: true });
+  try {
+    await until(() => w.document.querySelector('[data-start-task="task-a"]'));
+    w.document.querySelector('[data-start-task="task-a"]').click();
+    await until(() => calls.some(c => c.body?.customActivity === '复习时间序列'));
+    assert.equal(calls.find(c => c.body?.customActivity === '复习时间序列').body.focus, 'focusing');
+    await w.__refreshAll(); await tick();
+    w.document.getElementById('take-break').click();
+    await until(() => calls.some(c => c.body?.customActivity === '休息一下'));
+    assert.equal(calls.find(c => c.body?.customActivity === '休息一下').body.focus, 'available');
+    await w.__refreshAll(); await tick();
+    w.document.querySelector('[data-review-open="task-b"]').click();
+    w.document.getElementById('review-comment').value = '只给读书任务的留言';
+    w.document.getElementById('review-comment').dispatchEvent(new w.Event('input', { bubbles: true }));
+    w.document.querySelector('[data-review-open="task-c"]').click();
+    assert.equal(w.document.getElementById('review-comment').value, '');
+    w.document.querySelector('[data-review-open="task-b"]').click();
+    assert.equal(w.document.getElementById('review-comment').value, '只给读书任务的留言');
+    w.document.querySelector('[data-review-cancel]').click();
+    assert.equal(w.document.getElementById('review-comment'), null);
+    w.document.querySelector('[data-review-open="task-b"]').click();
+    assert.equal(w.document.getElementById('review-comment').value, '');
+  } finally { dom.window.close(); }
+});
+test('desktop reports failed synchronization and recovers without losing drafts', async () => {
+  const { dom, w } = desktop({ active: true });
+  try {
+    await until(() => w.document.getElementById('task-input'));
+    w.document.getElementById('task-input').value = '还未保存';
+    const fetch = w.fetch;
+    w.fetch = async () => { throw new Error('offline'); };
+    await w.__refreshAll();
+    assert.match(w.document.querySelector('.sync-warning').textContent, /暂时无法同步/);
+    assert.equal(w.document.getElementById('task-input').value, '还未保存');
+    w.fetch = fetch;
+    w.document.getElementById('sync-retry').click();
+    await until(() => !w.document.querySelector('.sync-warning'));
+    assert.equal(w.document.getElementById('task-input').value, '还未保存');
   } finally { dom.window.close(); }
 });

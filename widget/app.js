@@ -17,6 +17,8 @@ const state = {
   phase: 'setup',
   authTab: 'login',
   reviewOpenTaskId: null,
+  reviewDrafts: {},
+  syncError: false,
   reviewEmoji: 'cheer',
 };
 
@@ -89,6 +91,11 @@ function fmtTime(iso) {
 
 // ===== 渲染 =====
 function render() {
+  if (state.token && !state.me && state.config?.apiBase) {
+    state.phase = 'loading';
+    content.innerHTML = `<div class="card" role="status">${state.syncError ? '暂时无法连接，请检查网络后重试' : '正在连接，两个人的小空间很快就好…'}<button class="btn btn-block" id="sync-retry">重试连接</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button></div>`;
+    return;
+  }
   if (!state.config || !state.config.apiBase) state.phase = 'setup';
   else if (!state.token) state.phase = 'auth';
   else if (!state.pairInfo || state.pairInfo.status !== 'active') state.phase = 'pair';
@@ -169,6 +176,7 @@ function renderMainContent() {
   const partnerName = (state.partner && state.partner.displayName) || 'TA';
 
   content.innerHTML = `
+    ${state.syncError ? '<div class="sync-warning" role="status">暂时无法同步 · 当前显示上次内容 <button class="btn btn-sm" id="sync-retry">重试</button></div>' : ''}
     <div class="card">
       <div class="partner-card">
         <div class="partner-avatar">${escapeHtml((partnerName || '?')[0])}</div>
@@ -182,7 +190,7 @@ function renderMainContent() {
     </div>
 
     <div class="card">
-      <div class="card-title">我正在做什么</div>
+      <div class="card-title">我正在做什么 <button class="btn btn-ghost btn-sm" id="take-break">休息一下</button></div>
       <div class="task-add"><input class="input" id="current-activity" maxlength="100" placeholder="比如：复习时间序列第三章"><button class="btn" id="activity-save">分享</button></div>
       <div class="muted">${escapeHtml(myStatus.custom_activity || labelOf(ACTIVITY, myStatus.activity))} · ${relativeStatusTime(myStatus.updated_at)}</div>
       <div class="status-row">
@@ -237,6 +245,7 @@ function renderTaskItem(t) {
   const isMine = t.owner_id === state.me.id;
   const review = (t.reviews && t.reviews[0]) || null;
   const open = state.reviewOpenTaskId === t.id;
+  const draft = state.reviewDrafts[t.id];
   return `
     <div class="task-item">
       ${isMine ? `<div class="task-check ${t.is_completed ? 'done' : ''}" data-toggle="${t.id}"></div>` : `<div class="task-check ${t.is_completed ? 'done' : ''}" style="cursor:default"></div>`}
@@ -249,7 +258,7 @@ function renderTaskItem(t) {
             <div class="review-emojis">
               ${Object.entries(EMOJI).map(([k, v]) => `<button class="review-emoji-btn ${state.reviewEmoji === k ? 'active' : ''}" data-emoji="${k}">${v}</button>`).join('')}
             </div>
-            <input class="input" maxlength="300" id="review-comment" placeholder="留一句话…" value="${review ? escapeHtml(review.comment || '') : ''}">
+            <input class="input" maxlength="300" id="review-comment" data-draft-key="review:${t.id}" placeholder="留一句话…" value="${escapeHtml(draft ? draft.comment : review?.comment || '')}">
             <div class="mt8" style="display:flex;gap:6px">
               <button class="btn btn-sm" data-review-submit="${t.id}">提交回应</button>
               <button class="btn btn-ghost btn-sm" data-review-cancel>取消</button>
@@ -259,6 +268,7 @@ function renderTaskItem(t) {
       </div>
       <div class="task-actions">
         ${!isMine ? `<button class="icon-btn" title="回应" data-review-open="${t.id}">✏️</button>` : ''}
+        ${isMine && !t.is_completed ? `<button class="btn btn-ghost btn-sm" data-start-task="${t.id}">开始做</button>` : ''}
         ${isMine ? `<button class="icon-btn" title="删除" data-task-del="${t.id}">🗑</button>` : ''}
       </div>
     </div>
@@ -272,7 +282,7 @@ async function refreshAll() {
   try {
     const meRes = await api('/api/auth/me');
     const pairRes = await api('/api/pair/');
-    if (state.pairInfo?.pairId !== pairRes.pairId) content.innerHTML = '';
+    if (state.pairInfo?.pairId !== pairRes.pairId) { content.innerHTML = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null; }
     state.me = meRes.user;
     state.pairInfo = pairRes;
     state.partner = pairRes.partner || null;
@@ -285,18 +295,29 @@ async function refreshAll() {
       state.partnerStatus = statusRes.theirs;
       state.slackStats = slackRes.stats || {};
     } else { state.tasks = []; state.myStatus = null; state.partnerStatus = null; }
+    state.syncError = false;
     render();
   } catch (e) {
     if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); state.pairInfo = null; render(); }
-    else { toast('暂时无法同步，请检查网络后重试'); if (state.phase !== 'main') render(); }
+    else { state.syncError = true; toast('暂时无法同步，请检查网络后重试'); render(); }
   } finally { state.refreshing = false; }
 }
 
 // ===== 事件 =====
 content.addEventListener('click', async (e) => {
   const t = e.target;
+  if (t.id === 'sync-retry') { await refreshAll(); return; }
+  if (t.id === 'take-break' || t.dataset.startTask) {
+    const task = state.tasks.find(item => item.id === t.dataset.startTask && item.owner_id === state.me.id && !item.is_completed);
+    if (t.dataset.startTask && !task) return;
+    try {
+      await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: 'idle', customActivity: task ? task.content.slice(0, 100) : '休息一下', focus: task ? 'focusing' : 'available' }) });
+      await refreshAll(); toast(task ? '已分享：正在做这件事' : '休息一下，也很好');
+    } catch (err) { toast(err.message); }
+    return;
+  }
   if (t.id === 'logout') {
-    state.token = ''; localStorage.removeItem('token'); state.me = null; state.pairInfo = null;
+    state.token = ''; localStorage.removeItem('token'); state.me = null; state.pairInfo = null; state.reviewDrafts = {}; state.reviewOpenTaskId = null;
     content.innerHTML = ''; render(); return;
   }
   if (['pair-unbind', 'pair-cancel'].includes(t.id)) {
@@ -403,19 +424,24 @@ content.addEventListener('click', async (e) => {
     return;
   }
 
-  if (t.dataset.reviewOpen) { state.reviewOpenTaskId = t.dataset.reviewOpen; state.reviewEmoji = 'cheer'; render(); return; }
-  if (t.dataset.reviewCancel) { state.reviewOpenTaskId = null; render(); return; }
-  if (t.dataset.emoji) { state.reviewEmoji = t.dataset.emoji; render(); return; }
+  if (t.dataset.reviewOpen) { state.reviewOpenTaskId = t.dataset.reviewOpen; state.reviewEmoji = state.reviewDrafts[t.dataset.reviewOpen]?.emoji || state.tasks.find(task => task.id === t.dataset.reviewOpen)?.reviews?.[0]?.emoji || 'cheer'; render(); return; }
+  if (t.hasAttribute('data-review-cancel')) { delete state.reviewDrafts[state.reviewOpenTaskId]; state.reviewOpenTaskId = null; render(); return; }
+  if (t.dataset.emoji) { state.reviewEmoji = t.dataset.emoji; state.reviewDrafts[state.reviewOpenTaskId] = { comment: document.getElementById('review-comment')?.value || '', emoji: state.reviewEmoji }; render(); return; }
   if (t.dataset.reviewSubmit) {
     const comment = document.getElementById('review-comment').value.trim();
     try {
       await api('/api/reviews', { method: 'PUT', body: JSON.stringify({ taskId: t.dataset.reviewSubmit, emoji: state.reviewEmoji, comment }) });
+      delete state.reviewDrafts[state.reviewOpenTaskId];
       state.reviewOpenTaskId = null;
       toast('回应已发送');
       await refreshAll();
     } catch (err) { toast(err.message); }
     return;
   }
+});
+
+content.addEventListener('input', e => {
+  if (e.target.id === 'review-comment' && state.reviewOpenTaskId) state.reviewDrafts[state.reviewOpenTaskId] = { comment: e.target.value, emoji: state.reviewEmoji };
 });
 
 content.addEventListener('keydown', (e) => {
@@ -444,11 +470,12 @@ document.getElementById('btn-min').addEventListener('click', () => window.widget
 document.getElementById('btn-close').addEventListener('click', () => window.widget.hide());
 
 // 轮询
-setInterval(() => { if (state.token && document.visibilityState === 'visible' && !content.querySelector('input:focus, textarea:focus')) refreshAll(); }, 6000);
+setInterval(() => { if (state.token && document.visibilityState === 'visible') refreshAll(); }, 6000);
 
 // 启动
 (async () => {
   await loadConfig();
+  render();
   if (state.token) {
     try { await refreshAll(); } catch (e) { render(); }
   } else {

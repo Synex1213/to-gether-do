@@ -39,6 +39,7 @@ const state = {
   slack: null,
   authTab: 'login',
   deferredPrompt: null,
+  syncError: false,
 };
 
 /* ---------------- 工具 ---------------- */
@@ -310,7 +311,7 @@ function seg(label, key, map, current) {
 }
 function myStatusEditor() {
   const st = state.status.mine;
-  return `<div class="card"><h2>我正在做什么</h2>
+  return `<div class="card"><h2>我正在做什么 <button class="btn btn-sm btn-ghost" onclick="takeBreak()">休息一下</button></h2>
     <form class="add-row" onsubmit="shareActivity(event)"><input class="input" name="currentActivity" maxlength="100" placeholder="比如：复习时间序列第三章" required><button class="btn btn-primary">分享</button></form>
     <details id="status-options"><summary>快捷状态与心情</summary>
     ${seg('心情', 'mood', MOOD_MAP, st.mood)}
@@ -342,6 +343,7 @@ function myTaskItem(t) {
     t.is_completed ? '✓' : ''
   }</span>
       <span class="content">${esc(t.content)}</span>
+      ${!t.is_completed && state.date === todayStr() ? `<button class="btn btn-sm" onclick="startTask('${t.id}')">开始做</button>` : ''}
       <button class="del" onclick="delTask('${t.id}')" title="删除">🗑️</button>
     </div>
     ${
@@ -540,6 +542,7 @@ function renderMain() {
 function renderMainContent() {
   const isToday = state.date === todayStr();
   document.getElementById('app').innerHTML = `
+  ${state.syncError ? '<div class="sync-warning" role="status">暂时无法同步 · 当前显示上次内容 <button class="btn btn-sm" onclick="retrySync()">重试</button></div>' : ''}
   <div class="topbar">
     <div class="title">💞 两个人的打卡</div>
     <div class="date-nav">
@@ -565,6 +568,17 @@ function renderMainContent() {
     if (b) b.style.display = '';
   }
 }
+window.retrySync = async () => {
+  try { await refreshAll(); state.syncError = false; render(); } catch (e) { toast('暂时无法同步，请检查网络后重试'); }
+};
+window.startTask = async (id) => {
+  const task = state.data.tasks.find(t => t.id === id && t.owner_id === state.me.id && !t.is_completed);
+  if (!task || state.date !== todayStr()) return;
+  try { await api('PUT', '/status', { activity: 'idle', customActivity: task.content.slice(0, 100), focus: 'focusing' }); await loadStatus(); render(); toast('已分享：正在做这件事'); } catch (e) { toast(e.message); }
+};
+window.takeBreak = async () => {
+  try { await api('PUT', '/status', { activity: 'idle', customActivity: '休息一下', focus: 'available' }); await loadStatus(); render(); } catch (e) { toast(e.message); }
+};
 window.shareActivity = async (e) => {
   e.preventDefault();
   try {
@@ -610,9 +624,11 @@ function startPolling() {
     state.refreshing = true;
     try {
       await refreshAll();
+      state.syncError = false;
       quietRender();
     } catch (e) {
       if (e.status === 401) window.logout();
+      else { state.syncError = true; quietRender(); }
     } finally { state.refreshing = false; }
   }, 6000);
 }

@@ -9,7 +9,7 @@ function relativeStatusTime(iso) {
   return Math.floor(minutes / 1440) + ' 天前更新';
 }
 function renderPreservingDrafts(root, draw) {
-  const key = el => el.id || (el.closest('form')?.getAttribute('onsubmit') || '') + ':' + el.name;
+  const key = el => el.dataset.draftKey || el.id || (el.closest('form')?.getAttribute('onsubmit') || '') + ':' + el.name;
   const eligible = el => !['password', 'hidden', 'checkbox'].includes(el.type) && !/auth-|setup-|pair-|username|password|displayName|code/.test(el.id || el.name);
   const drafts = new Map([...root.querySelectorAll('input, textarea')].filter(eligible).map(el => [key(el), { value: el.value, focused: el === document.activeElement, start: el.selectionStart, end: el.selectionEnd }]));
   const open = new Map([...root.querySelectorAll('details[id]')].map(el => [el.id, el.open]));
