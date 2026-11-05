@@ -274,30 +274,20 @@ window.joinCode = async (e) => {
 function personCard(which) {
   const st = state.status[which];
   const isMe = which === 'mine';
+  const updated = Date.parse(st.updated_at);
+  const stale = !Number.isFinite(updated) || Date.now() - updated > 7200000;
   return `
-  <div class="card person">
-    <div class="avatar ${isMe ? '' : 'partner'}">
-      ${esc((st.user.displayName || '?')[0])}<span class="dot ${st.online ? 'online' : ''}"></span>
+  <article class="card person ${isMe ? 'person-mine' : 'person-partner'} ${stale ? 'status-stale' : ''}" aria-label="${esc(st.user.displayName)}的状态">
+    <div class="person-heading">
+      <div class="avatar ${isMe ? '' : 'partner'}" aria-hidden="true">${esc((st.user.displayName || '?')[0])}<span class="dot ${st.online ? 'online' : ''}"></span></div>
+      <div class="person-identity"><h3 class="name">${esc(st.user.displayName)} <span class="person-role">${isMe ? '我' : '伙伴'}</span></h3><div class="presence">${st.online ? '最近使用过应用' : '上次活跃 ' + relTime(st.last_active_at)}</div></div>
     </div>
-    <div class="meta">
-      <div class="name">${esc(st.user.displayName)} ${isMe ? '<span class="muted">(我)</span>' : ''}</div>
-      <div class="current-activity">${esc(st.custom_activity || ACT_MAP[st.activity] || '尚未分享')}</div>
-      <div class="badges">
-        <span class="badge">${MOOD_MAP[st.mood] || st.mood}</span>
-        <span class="badge ${st.focus === 'slacking' ? 'slacking' : st.focus === 'focusing' ? 'focusing' : ''}">
-          ${FOCUS_MAP[st.focus] || st.focus}
-        </span>
-
-      </div>
-      <div class="muted" style="margin-top:5px;font-size:11.5px">
-        ${relativeStatusTime(st.updated_at)} · ${st.online ? '最近使用过应用' : '上次活跃 ' + relTime(st.last_active_at)}
-        ${Date.now() - Date.parse(st.updated_at) > 7200000 ? ' · 状态可能已变化' : ''}
-      </div>
-      ${!isMe && st.focus === 'slacking'
-        ? '<button class="btn btn-sm catch-btn" onclick="catchSlack()">🐟 抓包！</button>'
-        : ''}
-    </div>
-  </div>`;
+    <div class="activity-label">${stale ? '上次分享' : '正在做'}</div>
+    <div class="current-activity">${esc(st.custom_activity || ACT_MAP[st.activity] || '尚未分享')}</div>
+    <div class="badges"><span class="badge">${MOOD_MAP[st.mood] || '😐 平常'}</span><span class="badge ${st.focus === 'slacking' ? 'slacking' : st.focus === 'focusing' ? 'focusing' : ''}">${FOCUS_MAP[st.focus] || '🟢 可打扰'}</span></div>
+    <div class="status-updated">${relativeStatusTime(st.updated_at)}${stale ? '<span class="stale-note">状态可能已变化</span>' : ''}</div>
+    ${isMe ? '<button class="text-action" onclick="focusStatusEditor()">更新我的状态 <span aria-hidden="true">↗</span></button>' : ''}
+  </article>`;
 }
 
 function seg(label, key, map, current) {
@@ -311,14 +301,14 @@ function seg(label, key, map, current) {
 }
 function myStatusEditor() {
   const st = state.status.mine;
-  return `<div class="card"><h2>我正在做什么 <button class="btn btn-sm btn-ghost" onclick="takeBreak()">休息一下</button></h2>
-    <form class="add-row" onsubmit="shareActivity(event)"><input class="input" name="currentActivity" maxlength="100" placeholder="比如：复习时间序列第三章" required><button class="btn btn-primary">分享</button></form>
+  return `<section class="card status-editor" aria-labelledby="status-editor-title"><div class="section-heading"><div><div class="eyebrow">分享此刻</div><h2 id="status-editor-title">我正在做什么</h2></div><button class="btn btn-sm btn-ghost" onclick="takeBreak()">休息一下</button></div>
+    <form class="add-row status-form" onsubmit="shareActivity(event)"><label class="sr-only" for="current-activity-input">我正在做什么</label><input class="input" id="current-activity-input" name="currentActivity" maxlength="100" placeholder="比如：复习时间序列第三章" required><button class="btn btn-primary">分享状态</button></form>
     <details id="status-options"><summary>快捷状态与心情</summary>
     ${seg('心情', 'mood', MOOD_MAP, st.mood)}
     ${seg('专注', 'focus', FOCUS_MAP, st.focus)}
     ${seg('正在做', 'activity', ACT_MAP, st.activity)}
     </details>
-  </div>`;
+  </section>`;
 }
 window.setStatus = async (key, val) => {
   try {
@@ -389,14 +379,14 @@ function myTasksCard() {
   const p = d.progress[id];
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   const tasks = d.tasks.filter((t) => t.owner_id === id);
-  return `<div class="card"><h2>✅ 我今天的任务 <span class="muted">${p.done}/${p.total}</span></h2>
+  return `<div class="card"><h2>我的计划 <span class="muted">${p.done}/${p.total}</span></h2>
     <div class="progress"><span style="width:${pct}%"></span></div>
     <form class="add-row" onsubmit="addTask(event)">
       <input class="input" name="content" placeholder="给自己加一个任务…" maxlength="500" required>
       <button class="btn btn-primary">添加</button>
     </form>
     <ul class="task-list">
-      ${tasks.length ? tasks.map(myTaskItem).join('') : '<li class="muted">还没有任务，先定一个吧～</li>'}
+      ${tasks.length ? tasks.map(myTaskItem).join('') : '<li class="empty-plan"><span class="empty-mark" aria-hidden="true">＋</span><strong>从一件小事开始</strong><span>写下今天想做的事，让 TA 看见你的进展。</span></li>'}
     </ul>
   </div>`;
 }
@@ -406,10 +396,10 @@ function partnerTasksCard() {
   const p = d.progress[id];
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   const tasks = d.tasks.filter((t) => t.owner_id === id);
-  return `<div class="card"><h2>👀 TA 今天的任务 <span class="muted">${p.done}/${p.total}</span></h2>
+  return `<div class="card"><h2>伙伴的计划 <span class="muted">${p.done}/${p.total}</span></h2>
     <div class="progress"><span style="width:${pct}%"></span></div>
     <ul class="task-list">
-      ${tasks.length ? tasks.map(partnerTaskItem).join('') : '<li class="muted">TA 还没有定任务</li>'}
+      ${tasks.length ? tasks.map(partnerTaskItem).join('') : '<li class="empty-plan"><span class="empty-mark" aria-hidden="true">♡</span><strong>等 TA 分享今天的计划</strong><span>各自安排，也为彼此的小进展加油。</span></li>'}
     </ul>
   </div>`;
 }
@@ -543,31 +533,40 @@ function renderMainContent() {
   const isToday = state.date === todayStr();
   document.getElementById('app').innerHTML = `
   ${state.syncError ? '<div class="sync-warning" role="status">暂时无法同步 · 当前显示上次内容 <button class="btn btn-sm" onclick="retrySync()">重试</button></div>' : ''}
-  <div class="topbar">
-    <div class="title">💞 两个人的打卡</div>
-    <div class="date-nav">
-      <button class="btn btn-sm" onclick="changeDate(-1)">‹</button>
-      <div class="date-label">${friendlyDate(state.date)}${isToday ? ' · 今天' : ''}</div>
-      <button class="btn btn-sm" onclick="changeDate(1)" ${isToday ? 'disabled' : ''}>›</button>
-    </div>
-    <div>
-      <button class="btn btn-sm" id="installBtn" style="display:none" onclick="installApp()">📥 安装到桌面</button>
-      <button class="btn btn-sm btn-ghost" onclick="logout()">退出</button>
-    </div>
-  </div>
-  <div class="people">${personCard('theirs')}${personCard('mine')}</div>
-  <div style="margin-top:14px">${myStatusEditor()}</div>
-  <details id="daily-tasks" class="card"><summary>今日计划与回应 · ${state.data.tasks.filter(t => t.is_completed).length}/${state.data.tasks.length} 已完成</summary>
-    <p class="muted">${isToday ? '今天的计划' : friendlyDate(state.date) + ' 的历史计划'} · 上方状态始终显示最近分享的内容</p>
-    <div class="main-grid" style="margin-top:14px">${myTasksCard()}${partnerTasksCard()}</div>
-  </details>
-  <details id="small-interactions" class="card"><summary>一起休息 · 小互动</summary><div class="slack-grid">${slackControlCard()}${slackHistoryCard()}</div></details>
-  <details id="companion-settings" class="card"><summary>伙伴设置</summary><p class="muted">一次与一位伙伴共享日常。解除后停止共享，历史任务不会展示给新伙伴。</p><button class="btn btn-ghost" onclick="unbindPartner()">解除当前绑定</button></details>`;
+  <header class="topbar">
+    <div class="brand-inline"><div class="title">💞 两个人的打卡</div><p>各自忙碌，也看见彼此。</p></div>
+    <div class="topbar-actions"><button class="btn btn-sm" id="installBtn" style="display:none" onclick="installApp()">安装到桌面</button><button class="btn btn-sm btn-ghost" onclick="logout()">退出</button></div>
+  </header>
+  <div class="companion-layout">
+    <aside class="companion-sidebar" aria-label="两个人的状态">
+      <div class="sidebar-heading"><h2>我们此刻</h2><span>状态由本人分享</span></div>
+      <div class="people">${personCard('theirs')}${personCard('mine')}</div>
+      <p class="sidebar-note">陪伴各自的节奏，不必时刻在线。</p>
+    </aside>
+    <main class="companion-detail" aria-label="状态调整与每日详情">
+      ${myStatusEditor()}
+      <details id="daily-tasks" class="card plans-panel" open>
+        <summary><span>计划与回应 <span class="plan-count">${state.data.tasks.filter(t => t.is_completed).length}/${state.data.tasks.length} 已完成</span></span></summary>
+        <div class="plans-toolbar"><p>${isToday ? '今天想做些什么？' : '正在回看历史计划'}<span>彼此的状态始终显示最近分享的内容。</span></p>
+          <nav class="date-nav" aria-label="计划日期"><button class="btn btn-sm" aria-label="前一天" onclick="changeDate(-1)">‹</button><div class="date-label">${friendlyDate(state.date)}${isToday ? ' · 今天' : ''}</div><button class="btn btn-sm" aria-label="后一天" onclick="changeDate(1)" ${isToday ? 'disabled' : ''}>›</button></nav>
+        </div>
+        <div class="main-grid plans-content">${myTasksCard()}${partnerTasksCard()}</div>
+      </details>
+      <div class="secondary-panels">
+        <details id="small-interactions" class="card compact-panel"><summary>一起休息 <span>小互动</span></summary><div class="slack-grid">${slackControlCard()}${slackHistoryCard()}</div></details>
+        <details id="companion-settings" class="card compact-panel"><summary>伙伴设置 <span>管理绑定</span></summary><p class="muted">一次与一位伙伴共享日常。解除后停止共享，历史任务不会展示给新伙伴。</p><button class="btn btn-ghost" onclick="unbindPartner()">解除当前绑定</button></details>
+      </div>
+    </main>
+  </div>`;
   if (state.deferredPrompt) {
     const b = document.getElementById('installBtn');
     if (b) b.style.display = '';
   }
 }
+window.focusStatusEditor = () => {
+  const input = document.getElementById('current-activity-input');
+  if (input) { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); input.focus({ preventScroll: true }); }
+};
 window.retrySync = async () => {
   try { await refreshAll(); state.syncError = false; render(); } catch (e) { toast('暂时无法同步，请检查网络后重试'); }
 };
