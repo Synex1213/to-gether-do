@@ -110,7 +110,11 @@ test('web prioritizes current activity, keeps independent drafts and exits when 
     w.eval(read('public/app.js') + ';window.__refresh = refreshAll; window.__render = render;');
     await until(() => w.document.querySelector('.current-activity'));
     assert.equal(w.document.querySelector('.current-activity').textContent, '写论文');
-    assert.equal(w.document.getElementById('daily-tasks').open, false);
+    assert.equal(w.document.getElementById('daily-tasks').open, true);
+    assert.equal(w.document.querySelectorAll('.companion-sidebar .person').length, 2);
+    assert.ok(w.document.querySelector('.companion-detail .status-editor'));
+    assert.ok(w.document.querySelector('.companion-detail #daily-tasks'));
+    assert.ok(w.document.querySelector('#daily-tasks .date-nav'));
     w.document.querySelector('input[name="currentActivity"]').value = '未分享的状态';
     w.document.querySelector('input[name="comment"]').value = '未发送的留言';
     w.document.getElementById('daily-tasks').open = true;
