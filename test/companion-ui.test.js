@@ -45,6 +45,9 @@ test('desktop loads unpaired account without requesting pair-only data and shows
     w.document.getElementById('pair-create').click();
     await until(() => w.document.querySelector('.pair-code'));
     assert.equal(w.document.querySelector('.pair-code').textContent, 'ABC234');
+    w.document.getElementById('logout').click();
+    assert.ok(w.document.getElementById('auth-submit'));
+    assert.equal(w.localStorage.getItem('token'), null);
   } finally { dom.window.close(); }
 });
 test('desktop keeps drafts across refresh and emoji selection, sends taskId and unbinds', async () => {

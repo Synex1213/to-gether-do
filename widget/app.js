@@ -151,6 +151,7 @@ function renderPair() {
         <input class="input" id="pair-code-input" placeholder="6 位码" maxlength="6"></div>
         <button class="btn btn-ghost btn-block" id="pair-join">加入</button>
       `}
+      <button class="btn btn-ghost btn-block btn-sm" id="logout">退出登录</button>
     </div>
   `;
 }
