@@ -15,7 +15,7 @@ function desktop({ active = false } = {}) {
   let paired = active;
   let activity = '';
   w.localStorage.setItem('token', 'test-token');
-  w.widget = { getConfig: async () => ({ apiBase: 'https://to-gether-do.onrender.com' }), setConfig: async patch => patch, minimize() {}, hide() {} };
+  w.widget = { getConfig: async () => ({ apiBase: 'https://to-gether-do-2.onrender.com' }), setConfig: async patch => patch, minimize() {}, hide() {} };
   w.confirm = () => true;
   w.fetch = async (url, opts = {}) => {
     const path = new URL(url).pathname, method = opts.method || 'GET';
