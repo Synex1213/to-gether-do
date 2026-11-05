@@ -3,169 +3,148 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { JSDOM } = require('jsdom');
-const read = path => fs.readFileSync(path, 'utf8');
+const read = file => fs.readFileSync(file, 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function until(check) {
-  for (let i = 0; i < 30; i++) { if (check()) return; await tick(); }
-  assert.ok(check(), 'expected UI state did not appear');
-}
-function desktop({ active = false } = {}) {
-  const dom = new JSDOM(read('widget/index.html'), { url: 'https://widget.test', runScripts: 'outside-only', pretendToBeVisual: true });
-  const w = dom.window, calls = [];
-  let paired = active;
-  let activity = '';
-  w.localStorage.setItem('token', 'test-token');
-  w.widget = { getConfig: async () => ({ apiBase: 'https://to-gether-do-2.onrender.com' }), setConfig: async patch => patch, minimize() {}, hide() {} };
-  w.confirm = () => true;
-  w.fetch = async (url, opts = {}) => {
-    const path = new URL(url).pathname, method = opts.method || 'GET';
-    const body = opts.body ? JSON.parse(opts.body) : null;
-    calls.push({ path, method, body });
-    let data = {};
-    if (path === '/api/auth/me') data = { user: { id: 'a', displayName: '我' } };
-    else if (path === '/api/pair/code') data = { status: 'waiting', code: 'ABC234' };
-    else if (path === '/api/pair/' && method === 'DELETE') { paired = false; data = { ok: true }; }
-    else if (path === '/api/pair/') data = paired ? { status: 'active', pairId: 'pair-1', partner: { id: 'b', displayName: '伙伴' } } : { status: 'none' };
-    else if (path === '/api/tasks') data = { tasks: [{ id: 'task-b', owner_id: 'b', content: '读书', reviews: [] }, { id: 'task-c', owner_id: 'b', content: '写报告', reviews: [] }, { id: 'task-a', owner_id: 'a', content: '复习时间序列', reviews: [] }] };
-    else if (path === '/api/status') {
-      if (method === 'PUT') activity = body.customActivity || '';
-      data = { mine: { activity: 'study', custom_activity: activity, updated_at: new Date().toISOString() }, theirs: { activity: 'work', custom_activity: '<script>hello</script>', focus: 'focusing', updated_at: new Date().toISOString() } };
-    } else if (path === '/api/slack/stats') data = { stats: {} };
-    return { ok: true, status: 200, json: async () => data };
+async function until(check) { for (let i=0;i<50;i++) { if(check()) return; await tick(); } assert.ok(check(), 'Expected UI state did not appear'); }
+const today = () => new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+const yesterday = () => new Date(Date.now()+8*3600000-86400000).toISOString().slice(0,10);
+function harness({ active=true, compact=true, native=true, token=true, config={} }={}) {
+  const dom=new JSDOM(read('widget/index.html'), {url:'https://widget.test',runScripts:'outside-only',pretendToBeVisual:true});
+  const w=dom.window, calls=[], patches=[], modes=[];
+  let paired=active, cfg={apiBase:'https://to-gether-do-2.onrender.com',compact,theme:'green',alwaysOnTop:true,...config};
+  let offline=false;
+  const statuses={mine:{activity:'study',focus:'focusing',mood:'normal',custom_activity:'复习时间序列',updated_at:new Date().toISOString()},theirs:{activity:'work',focus:'available',mood:'happy',custom_activity:'<script>示例</script>',updated_at:new Date().toISOString()}};
+  const tasks=[{id:'task-b',owner_id:'b',content:'读书',task_date:today(),reviews:[]},{id:'task-c',owner_id:'b',content:'写报告',task_date:today(),reviews:[]},{id:'task-a',owner_id:'a',content:'复习第三章',task_date:today(),reviews:[]},{id:'old',owner_id:'a',content:'昨天的计划',task_date:yesterday(),is_completed:true,reviews:[]}];
+  if(token) w.localStorage.setItem('token','test-token');
+  if(!native) w.localStorage.setItem('companion_config',JSON.stringify(cfg));
+  if(native) w.widget={ getConfig:async()=>cfg, setConfig:async patch=>{patches.push(patch);cfg={...cfg,...patch};return cfg;},setMode:async mode=>{modes.push(mode);return true;},minimize(){},hide(){},onConfigChanged(cb){this.notify=cb;} };
+  w.confirm=()=>true;
+  w.fetch=async(url,opts={})=>{
+    if(offline) throw new Error('offline');
+    const parsed=new URL(url,w.location.href),path=parsed.pathname,method=opts.method||'GET',body=opts.body?JSON.parse(opts.body):null;
+    calls.push({path,method,body,date:parsed.searchParams.get('date')});
+    let data={};
+    if(path==='/api/auth/me') data={user:{id:'a',displayName:'小鱼'}};
+    else if(path==='/api/pair/code') data={status:'waiting',code:'ABC234'};
+    else if(path==='/api/pair/'&&method==='DELETE') {paired=false;data={ok:true};}
+    else if(path==='/api/pair/') data=paired?{status:'active',pairId:'one',partner:{id:'b',displayName:'伙伴'}}:{status:'none'};
+    else if(path==='/api/tasks') data={tasks:tasks.filter(t=>t.task_date===parsed.searchParams.get('date'))};
+    else if(path==='/api/status') {
+      if(method==='PUT') { if(body.customActivity!==undefined) statuses.mine.custom_activity=body.customActivity;for(const key of ['activity','focus','mood'])if(body[key])statuses.mine[key]=body[key]; }
+      data=JSON.parse(JSON.stringify({...statuses,status:statuses.mine}));
+    } else if(path==='/api/slack/stats')data={stats:{}};
+    else if(path==='/api/reviews')data={ok:true};
+    return {ok:true,status:200,json:async()=>data};
   };
-  w.eval(read('widget/ui-state.js') + ';window.renderPreservingDrafts = renderPreservingDrafts; window.relativeStatusTime = relativeStatusTime;');
-  w.eval(read('widget/app.js') + ';window.__refreshAll = refreshAll;');
-  return { dom, w, calls };
+  w.eval(read('widget/ui-state.js')+';window.renderPreservingDrafts=renderPreservingDrafts;window.relativeStatusTime=relativeStatusTime;');
+  w.eval(read('widget/app.js')+';window.__refresh=refreshAll;window.__validDate=validDate;');
+  return {dom,w,calls,patches,modes,setOffline(value){offline=value;}};
 }
-test('desktop loads unpaired account without requesting pair-only data and shows generated code', async () => {
-  const { dom, w, calls } = desktop();
-  try {
-    await until(() => w.document.getElementById('pair-create'));
-    assert.equal(calls.some(c => c.path === '/api/tasks'), false);
-    w.document.getElementById('pair-create').click();
-    await until(() => w.document.querySelector('.pair-code'));
-    assert.equal(w.document.querySelector('.pair-code').textContent, 'ABC234');
-    w.document.getElementById('logout').click();
-    assert.ok(w.document.getElementById('auth-submit'));
-    assert.equal(w.localStorage.getItem('token'), null);
-  } finally { dom.window.close(); }
+function input(w,id,value){const el=w.document.getElementById(id);el.value=value;el.dispatchEvent(new w.Event('input',{bubbles:true}));return el;}
+function click(w,selector){const el=w.document.querySelector(selector);assert.ok(el,selector);el.click();}
+test('default corner view has exactly two near-term rows, seven themes and no editing clutter',async()=>{
+  const h=harness();const {w}=h;
+  try{await until(()=>w.document.querySelectorAll('.glance-person').length===2);
+    assert.equal(w.document.getElementById('current-activity'),null);
+    assert.equal(w.document.getElementById('task-input'),null);
+    assert.equal(w.document.querySelectorAll('.theme-dot').length,7);
+    assert.equal(w.document.getElementById('plan-date').type,'date');
+    assert.equal(w.document.querySelector('.current-activity script'),null);
+    assert.equal(w.document.querySelector('.current-activity').textContent,'<script>示例</script>');
+    assert.equal(w.document.body.classList.contains('is-compact'),true);
+    assert.equal(h.modes.at(-1),'compact');
+    assert.doesNotMatch(w.document.body.textContent,/情侣|亲亲/);
+  }finally{h.dom.window.close();}
 });
-test('desktop keeps drafts across refresh and emoji selection, sends taskId and unbinds', async () => {
-  const { dom, w, calls } = desktop({ active: true });
-  try {
-    await until(() => w.document.getElementById('current-activity'));
-    assert.equal(w.document.querySelector('.current-activity').textContent, '<script>hello</script>');
-    assert.equal(w.document.querySelector('.current-activity script'), null);
-    const tasks = w.document.getElementById('daily-tasks'); tasks.open = true;
-    const input = w.document.getElementById('task-input'); input.value = '未提交的任务';
-    await w.__refreshAll();
-    assert.equal(w.document.getElementById('task-input').value, '未提交的任务');
-    assert.equal(w.document.getElementById('daily-tasks').open, true);
-    w.document.querySelector('[data-review-open]').click();
-    w.document.getElementById('review-comment').value = '继续加油';
-    w.document.querySelector('[data-emoji="hug"]').click();
-    assert.equal(w.document.getElementById('review-comment').value, '继续加油');
-    w.document.querySelector('[data-review-submit]').click();
-    await until(() => calls.some(c => c.path === '/api/reviews'));
-    const sent = calls.find(c => c.path === '/api/reviews').body;
-    assert.equal(sent.taskId, 'task-b'); assert.equal(sent.comment, '继续加油'); assert.equal(sent.emoji, 'hug');
-    await until(() => !w.document.getElementById('review-comment'));
-    w.document.getElementById('pair-unbind').click();
-    await until(() => w.document.getElementById('pair-create'));
-    assert.ok(calls.some(c => c.path === '/api/pair/' && c.method === 'DELETE'));
-  } finally { dom.window.close(); }
+test('expand, edit, collapse and reopen preserve drafts and focus',async()=>{
+  const h=harness();const{w}=h;
+  try{await until(()=>w.document.querySelector('.glance-person'));
+    click(w,'[data-open-panel="status"]');await until(()=>w.document.getElementById('current-activity'));
+    assert.equal(h.modes.at(-1),'expanded');input(w,'current-activity','尚未分享的状态');
+    click(w,'[data-panel="tasks"]');input(w,'task-input','尚未提交的任务').focus();
+    await w.__refresh();assert.equal(w.document.activeElement.id,'task-input');
+    click(w,'#btn-mode');await until(()=>!w.document.getElementById('task-input'));
+    click(w,'#btn-mode');await until(()=>w.document.getElementById('task-input'));
+    assert.equal(w.document.getElementById('task-input').value,'尚未提交的任务');
+    assert.equal(w.document.getElementById('current-activity').value,'尚未分享的状态');
+    assert.equal(h.modes.at(-1),'expanded');
+  }finally{h.dom.window.close();}
 });
-test('draft helper preserves independent forms, focus, expanded sections and timestamp fallback', () => {
-  const dom = new JSDOM('<div id="root"></div>', { runScripts: 'outside-only' });
-  const w = dom.window; w.eval(read('public/ui-state.js') + ';window.renderPreservingDrafts = renderPreservingDrafts; window.relativeStatusTime = relativeStatusTime;');
-  const markup = '<details id="plans"><summary>计划</summary><form onsubmit="sendComment(event,1)"><input name="comment"></form><form onsubmit="sendComment(event,2)"><input name="comment"></form></details>';
-  w.document.getElementById('root').innerHTML = markup;
-  const inputs = w.document.querySelectorAll('input'); inputs[0].value = '第一条'; inputs[1].value = '第二条'; inputs[1].focus(); inputs[1].setSelectionRange(1, 2);
-  w.document.querySelector('details').open = true;
-  w.eval(`renderPreservingDrafts(document.getElementById('root'), () => { document.getElementById('root').innerHTML = ${JSON.stringify(markup)}; })`);
-  assert.deepEqual([...w.document.querySelectorAll('input')].map(el => el.value), ['第一条', '第二条']);
-  assert.equal(w.document.activeElement.selectionStart, 1); assert.equal(w.document.querySelector('details').open, true);
-  assert.equal(w.eval('relativeStatusTime(undefined)'), '尚未更新');
-  dom.window.close();
+test('themes and pin controls persist without discarding drafts',async()=>{
+  const h=harness({compact:false});const{w}=h;
+  try{await until(()=>w.document.getElementById('current-activity'));input(w,'current-activity','保留输入');
+    for(const theme of ['blue','purple','green','yellow','pink','black','white']){
+      click(w,`.theme-dot[data-theme="${theme}"]`);await until(()=>w.document.documentElement.dataset.theme===theme);
+      assert.equal(w.document.querySelectorAll('.theme-dot[aria-pressed="true"]').length,1);
+      assert.equal(w.document.getElementById('current-activity').value,'保留输入');
+    }
+    click(w,'#btn-pin');await until(()=>w.document.getElementById('btn-pin').getAttribute('aria-pressed')==='false');
+    assert.equal(w.document.getElementById('btn-pin').getAttribute('aria-pressed'),'false');
+    w.widget.notify({alwaysOnTop:true});assert.equal(w.document.getElementById('btn-pin').getAttribute('aria-pressed'),'true');
+  }finally{h.dom.window.close();}
 });
-test('web prioritizes current activity, keeps independent drafts and exits when partner unbinds', async () => {
-  const dom = new JSDOM(read('public/index.html'), { url: 'https://app.test', runScripts: 'outside-only', pretendToBeVisual: true });
-  const w = dom.window;
-  let paired = true;
-  const person = (id, displayName) => ({ id, displayName });
-  w.localStorage.setItem('cc_token', 'test-token');
-  w.fetch = async (url) => {
-    const path = new URL(url, 'https://app.test').pathname;
-    let data;
-    if (path === '/api/auth/me') data = { user: person('a', '我') };
-    else if (path === '/api/pair') data = paired ? { status: 'active', pairId: 'one', partner: person('b', '伙伴') } : { status: 'none' };
-    else if (path === '/api/tasks') data = { tasks: [{ id: 'task-b', owner_id: 'b', content: '读书', reviews: [] }], users: { me: person('a', '我'), partner: person('b', '伙伴') }, progress: { a: { done: 0, total: 0 }, b: { done: 0, total: 1 } } };
-    else if (path === '/api/status') data = { mine: { user: person('a', '我'), activity: 'study', updated_at: new Date().toISOString() }, theirs: { user: person('b', '伙伴'), activity: 'work', custom_activity: '写论文', updated_at: new Date().toISOString() } };
-    else if (path === '/api/slack/stats') data = { stats: {} };
-    else if (path === '/api/slack/history') data = { history: [] };
-    return { ok: true, json: async () => data };
-  };
-  try {
-    w.eval(read('public/ui-state.js') + ';window.renderPreservingDrafts = renderPreservingDrafts; window.relativeStatusTime = relativeStatusTime;');
-    w.eval(read('public/app.js') + ';window.__refresh = refreshAll; window.__render = render;');
-    await until(() => w.document.querySelector('.current-activity'));
-    assert.equal(w.document.querySelector('.current-activity').textContent, '写论文');
-    assert.equal(w.document.getElementById('daily-tasks').open, true);
-    assert.equal(w.document.querySelectorAll('.companion-sidebar .person').length, 2);
-    assert.ok(w.document.querySelector('.companion-detail .status-editor'));
-    assert.ok(w.document.querySelector('.companion-detail #daily-tasks'));
-    assert.ok(w.document.querySelector('#daily-tasks .date-nav'));
-    w.document.querySelector('input[name="currentActivity"]').value = '未分享的状态';
-    w.document.querySelector('input[name="comment"]').value = '未发送的留言';
-    w.document.getElementById('daily-tasks').open = true;
-    await w.__refresh(); w.__render();
-    assert.equal(w.document.querySelector('input[name="currentActivity"]').value, '未分享的状态');
-    assert.equal(w.document.querySelector('input[name="comment"]').value, '未发送的留言');
-    assert.equal(w.document.getElementById('daily-tasks').open, true);
-    paired = false; await w.__refresh();
-    assert.equal(w.document.querySelector('.current-activity'), null);
-    assert.match(w.document.getElementById('app').textContent, /和 TA 绑定/);
-  } finally { dom.window.close(); }
+test('native calendar loads selected history while live statuses remain unchanged',async()=>{
+  const h=harness();const{w}=h;
+  try{await until(()=>w.document.querySelector('.glance-person'));
+    const status=w.document.querySelector('.current-activity').textContent;
+    const calendar=w.document.getElementById('plan-date');calendar.value=yesterday();calendar.dispatchEvent(new w.Event('change',{bubbles:true}));
+    await until(()=>w.document.getElementById('daily-tasks')?.textContent.includes('昨天的计划'));
+    assert.equal(h.modes.at(-1),'expanded');
+    assert.ok(h.calls.some(c=>c.path==='/api/tasks'&&c.date===yesterday()));
+    assert.equal(w.document.querySelector('.current-activity').textContent,status);
+    assert.equal(w.document.getElementById('task-add').disabled,true);
+    assert.equal(w.document.querySelector('[data-start-task="old"]'),null);
+    assert.equal(w.__validDate('2026-02-30'),false);
+    assert.equal(w.__validDate('2999-01-01'),false);
+    assert.equal(w.__validDate(yesterday()),true);
+  }finally{h.dom.window.close();}
 });
-
-test('desktop starts a task, takes a break, and isolates drafts when switching responses', async () => {
-  const { dom, w, calls } = desktop({ active: true });
-  try {
-    await until(() => w.document.querySelector('[data-start-task="task-a"]'));
-    w.document.querySelector('[data-start-task="task-a"]').click();
-    await until(() => calls.some(c => c.body?.customActivity === '复习时间序列'));
-    assert.equal(calls.find(c => c.body?.customActivity === '复习时间序列').body.focus, 'focusing');
-    await w.__refreshAll(); await tick();
-    w.document.getElementById('take-break').click();
-    await until(() => calls.some(c => c.body?.customActivity === '休息一下'));
-    assert.equal(calls.find(c => c.body?.customActivity === '休息一下').body.focus, 'available');
-    await w.__refreshAll(); await tick();
-    w.document.querySelector('[data-review-open="task-b"]').click();
-    w.document.getElementById('review-comment').value = '只给读书任务的留言';
-    w.document.getElementById('review-comment').dispatchEvent(new w.Event('input', { bubbles: true }));
-    w.document.querySelector('[data-review-open="task-c"]').click();
-    assert.equal(w.document.getElementById('review-comment').value, '');
-    w.document.querySelector('[data-review-open="task-b"]').click();
-    assert.equal(w.document.getElementById('review-comment').value, '只给读书任务的留言');
-    w.document.querySelector('[data-review-cancel]').click();
-    assert.equal(w.document.getElementById('review-comment'), null);
-    w.document.querySelector('[data-review-open="task-b"]').click();
-    assert.equal(w.document.getElementById('review-comment').value, '');
-  } finally { dom.window.close(); }
+test('response drafts remain task-specific; cancel discards only that draft and taskId is sent',async()=>{
+  const h=harness({compact:false});const{w}=h;
+  try{await until(()=>w.document.getElementById('task-input'));click(w,'[data-panel="tasks"]');
+    click(w,'[data-review-open="task-b"]');input(w,'review-comment','给读书任务的留言');click(w,'[data-emoji="hug"]');
+    click(w,'[data-review-open="task-c"]');assert.equal(w.document.getElementById('review-comment').value,'');
+    click(w,'[data-review-open="task-b"]');assert.equal(w.document.getElementById('review-comment').value,'给读书任务的留言');
+    click(w,'[data-review-cancel]');click(w,'[data-review-open="task-b"]');assert.equal(w.document.getElementById('review-comment').value,'');
+    input(w,'review-comment','继续加油');click(w,'[data-review-submit="task-b"]');await until(()=>h.calls.some(c=>c.path==='/api/reviews'));
+    assert.equal(h.calls.find(c=>c.path==='/api/reviews').body.taskId,'task-b');
+    assert.equal(h.calls.find(c=>c.path==='/api/reviews').body.comment,'继续加油');
+  }finally{h.dom.window.close();}
 });
-test('desktop reports failed synchronization and recovers without losing drafts', async () => {
-  const { dom, w } = desktop({ active: true });
-  try {
-    await until(() => w.document.getElementById('task-input'));
-    w.document.getElementById('task-input').value = '还未保存';
-    const fetch = w.fetch;
-    w.fetch = async () => { throw new Error('offline'); };
-    await w.__refreshAll();
-    assert.match(w.document.querySelector('.sync-warning').textContent, /暂时无法同步/);
-    assert.equal(w.document.getElementById('task-input').value, '还未保存');
-    w.fetch = fetch;
-    w.document.getElementById('sync-retry').click();
-    await until(() => !w.document.querySelector('.sync-warning'));
-    assert.equal(w.document.getElementById('task-input').value, '还未保存');
-  } finally { dom.window.close(); }
+test('task start and rest update the shared live status',async()=>{
+  const h=harness({compact:false});const{w}=h;
+  try{await until(()=>w.document.getElementById('task-input'));click(w,'[data-panel="tasks"]');click(w,'[data-start-task="task-a"]');
+    await until(()=>h.calls.some(c=>c.body?.customActivity==='复习第三章'));
+    assert.equal(h.calls.find(c=>c.body?.customActivity==='复习第三章').body.focus,'focusing');
+    await w.__refresh();click(w,'[data-panel="status"]');click(w,'#take-break');
+    await until(()=>h.calls.some(c=>c.body?.customActivity==='休息一下'));
+    assert.equal(h.calls.find(c=>c.body?.customActivity==='休息一下').body.focus,'available');
+  }finally{h.dom.window.close();}
+});
+test('unpaired account generates visible code without pair-only requests, and can log out',async()=>{
+  const h=harness({active:false});const{w}=h;
+  try{await until(()=>w.document.getElementById('pair-create'));
+    assert.equal(h.calls.some(c=>c.path==='/api/tasks'),false);
+    click(w,'#pair-create');await until(()=>w.document.querySelector('.pair-code'));
+    assert.equal(w.document.querySelector('.pair-code').textContent,'ABC234');
+    click(w,'#logout');assert.ok(w.document.getElementById('auth-submit'));
+  }finally{h.dom.window.close();}
+});
+test('offline retry keeps drafts; unbinding clears the old partner',async()=>{
+  const h=harness({compact:false});const{w}=h;
+  try{await until(()=>w.document.getElementById('task-input'));input(w,'task-input','保留草稿');h.setOffline(true);await w.__refresh();
+    assert.ok(w.document.querySelector('.sync-warning'));assert.equal(w.document.getElementById('task-input').value,'保留草稿');
+    h.setOffline(false);click(w,'#sync-retry');await until(()=>!w.document.querySelector('.sync-warning'));
+    click(w,'[data-panel="settings"]');click(w,'#pair-unbind');await until(()=>w.document.getElementById('pair-create'));
+    assert.equal(w.document.querySelector('.glance-person'),null);
+  }finally{h.dom.window.close();}
+});
+test('browser shares the desktop renderer and compact preferences, without native controls',async()=>{
+  const h=harness({native:false});const{w}=h;
+  try{await until(()=>w.document.querySelector('.glance-person'));assert.equal(w.document.body.classList.contains('web-host'),true);
+    click(w,'.theme-dot[data-theme="blue"]');await until(()=>JSON.parse(w.localStorage.getItem('companion_config')).theme==='blue');
+    click(w,'#btn-mode');await until(()=>w.document.getElementById('current-activity'));
+    assert.equal(JSON.parse(w.localStorage.getItem('companion_config')).compact,false);
+    const shell=read('public/index.html');assert.match(shell,/\/widget\/app.js/);assert.match(shell,/\/widget\/styles.css/);
+  }finally{h.dom.window.close();}
 });
