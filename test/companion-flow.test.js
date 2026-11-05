@@ -19,6 +19,11 @@ test('pair lifecycle, stale invitations, isolation and concurrent joins', async 
     assert.equal(r.status, 200); return r.data.token;
   }
   try {
+    const shell = await fetch(base.replace('/api', '/'));
+    assert.match(await shell.text(), /\/widget\/app.js/);
+    const renderer = await fetch(base.replace('/api', '/widget/app.js'));
+    assert.match(renderer.headers.get('content-type'), /javascript/);
+    assert.match(await renderer.text(), /THEME_OPTIONS/);
     const a = await register('alice'), b = await register('bob'), c = await register('carol'), d = await register('dave');
     const aCode = (await request('/pair/code', a, 'POST')).data;
     const bCode = (await request('/pair/code', b, 'POST')).data;

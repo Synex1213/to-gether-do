@@ -37,6 +37,7 @@ app.get('/api/health', (req, res) =>
 );
 
 const publicDir = path.join(__dirname, '..', 'public');
+app.use('/widget', express.static(path.join(__dirname, '..', 'widget')));
 app.use(express.static(publicDir));
 
 // SPA 回退：非 /api 请求统一返回 index.html

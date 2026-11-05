@@ -2,11 +2,25 @@
 
 const content = document.getElementById('content');
 const toastEl = document.getElementById('toast');
+const IS_NATIVE = Boolean(window.widget);
+const THEME_OPTIONS = [ ['blue', '莫兰迪蓝', '#8da6b8'], ['purple', '莫兰迪紫', '#aa9bb8'], ['green', '莫兰迪绿', '#88a294'], ['yellow', '莫兰迪黄', '#c2b085'], ['pink', '莫兰迪粉', '#c19daa'], ['black', '标准黑', '#29313e'], ['white', '标准白', '#ffffff'] ];
+const bridge = window.widget || {
+  getConfig: async () => { try { return JSON.parse(localStorage.getItem('companion_config')) || {}; } catch (_) { return {}; } },
+  setConfig: async patch => { const config = { ...state.config, ...patch }; localStorage.setItem('companion_config', JSON.stringify(config)); return config; },
+  setMode: async () => true,
+};
+let windowMode = '';
+
 
 const state = {
   config: null,
   refreshing: false,
-  token: localStorage.getItem('token') || '',
+  token: localStorage.getItem('token') || localStorage.getItem('cc_token') || '',
+  date: today(),
+  panel: 'status',
+  statusDraft: '',
+  taskDraft: '',
+  refreshQueued: false,
   me: null,
   pairInfo: null,
   partner: null,
@@ -22,12 +36,12 @@ const state = {
   reviewEmoji: 'cheer',
 };
 
-const EMOJI = { kiss: '😘', hug: '🤗', cheer: '💪', knock: '💢' };
+const EMOJI = { cheer: '💪', hug: '🤗', knock: '👏', kiss: '✨' };
 const MOODS = [
   { k: 'normal', label: '😐 平常' },
   { k: 'happy', label: '😊 开心' },
   { k: 'tired', label: '😴 有点累' },
-  { k: 'missyou', label: '🥺 想你了' },
+  { k: 'missyou', label: '🙂 想聊聊' },
   { k: 'emo', label: '😢 emo' },
 ];
 const FOCUS = [
@@ -67,10 +81,13 @@ async function api(path, opts = {}) {
 }
 
 async function loadConfig() {
-  state.config = await window.widget.getConfig();
+  state.config = { apiBase: IS_NATIVE ? 'https://to-gether-do-2.onrender.com' : location.origin, compact: true, theme: 'green', alwaysOnTop: true, autoLaunch: false, ...await bridge.getConfig() };
+  if (!THEME_OPTIONS.some(([key]) => key === state.config.theme)) state.config.theme = 'green';
+  applyChrome();
 }
 async function saveConfig(patch) {
-  state.config = await window.widget.setConfig(patch);
+  state.config = await bridge.setConfig(patch);
+  applyChrome();
 }
 
 function labelOf(list, k) {
@@ -90,10 +107,44 @@ function fmtTime(iso) {
 }
 
 // ===== 渲染 =====
+function applyChrome() {
+  if (!state.config) return;
+  document.documentElement.dataset.theme = state.config.theme;
+  document.body.classList.toggle('web-host', !IS_NATIVE);
+  const compact = state.phase === 'main' && state.config.compact !== false;
+  const mode = ['main','loading'].includes(state.phase) ? (state.config.compact !== false ? 'compact' : 'expanded') : 'auth';
+  document.body.classList.toggle('is-compact', compact);
+  document.body.classList.toggle('is-auth', mode === 'auth');
+  const modeButton = document.getElementById('btn-mode');
+  modeButton.textContent = compact ? '展开' : '收起';
+  modeButton.disabled = state.phase !== 'main';
+  modeButton.setAttribute('aria-expanded', String(!compact));
+  modeButton.title = compact ? '展开状态、计划与互动' : '收起为双方近况小窗';
+  const pin = document.getElementById('btn-pin');
+  pin.setAttribute('aria-pressed', String(state.config.alwaysOnTop !== false));
+  pin.title = state.config.alwaysOnTop !== false ? '取消置顶' : '置顶到其他窗口上方';
+  const pinSetting = document.getElementById('setting-pin');
+  if (pinSetting) pinSetting.checked = state.config.alwaysOnTop !== false;
+  const launchSetting = document.getElementById('setting-autolaunch');
+  if (launchSetting) launchSetting.checked = Boolean(state.config.autoLaunch);
+  const date = document.getElementById('plan-date');
+  if (document.activeElement !== date) date.value = state.date;
+  date.max = today(); date.disabled = state.phase !== 'main';
+  const themes = document.getElementById('themes');
+  if (!themes.childElementCount) themes.innerHTML = THEME_OPTIONS.map(([key, name, color]) => `<button class="theme-dot" data-theme="${key}" style="--swatch:${color}" title="${name}" aria-label="${name}" aria-pressed="${state.config.theme === key}"></button>`).join('');
+  for (const button of themes.children) button.setAttribute('aria-pressed', String(button.dataset.theme === state.config.theme));
+  if (windowMode !== mode) { windowMode = mode; void bridge.setMode?.(mode); }
+}
+async function openPanel(panel) {
+  state.panel = panel;
+  if (state.config.compact !== false) await saveConfig({ compact: false });
+  render();
+}
 function render() {
   if (state.token && !state.me && state.config?.apiBase) {
     state.phase = 'loading';
-    content.innerHTML = `<div class="card" role="status">${state.syncError ? '暂时无法连接，请检查网络后重试' : '正在连接，两个人的小空间很快就好…'}<button class="btn btn-block" id="sync-retry">重试连接</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button></div>`;
+    applyChrome();
+    content.innerHTML = `<div class="card" role="status">${state.syncError ? '暂时无法连接，请检查网络后重试' : '正在连接伙伴空间…'}<button class="btn btn-block" id="sync-retry">重试连接</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button></div>`;
     return;
   }
   if (!state.config || !state.config.apiBase) state.phase = 'setup';
@@ -101,6 +152,7 @@ function render() {
   else if (!state.pairInfo || state.pairInfo.status !== 'active') state.phase = 'pair';
   else state.phase = 'main';
 
+  applyChrome();
   if (state.phase === 'setup') renderSetup();
   else if (state.phase === 'auth') renderAuth();
   else if (state.phase === 'pair') renderPair();
@@ -128,9 +180,10 @@ function renderSetup() {
 function renderAuth() {
   content.innerHTML = `
     <div class="card">
+      <div class="auth-intro"><img src="${IS_NATIVE ? 'icon.png' : '/widget/icon.png'}" alt=""><h1>伙伴打卡</h1><p>各自做事，偶尔看一眼。</p></div>
       <div class="tabs">
-        <div class="tab ${state.authTab === 'login' ? 'active' : ''}" data-tab="login">登录</div>
-        <div class="tab ${state.authTab === 'register' ? 'active' : ''}" data-tab="register">注册</div>
+        <button class="tab ${state.authTab === 'login' ? 'active' : ''}" data-tab="login">登录</button>
+        <button class="tab ${state.authTab === 'register' ? 'active' : ''}" data-tab="register">注册</button>
       </div>
       <div class="field"><label class="label">用户名</label><input class="input" id="auth-username" placeholder="2-20 位"></div>
       <div class="field"><label class="label">密码</label><input class="input" id="auth-password" type="password" placeholder="至少 6 位"></div>
@@ -166,89 +219,65 @@ function renderPair() {
 function renderMain() {
   renderPreservingDrafts(content, renderMainContent);
 }
+function glancePerson(isMine) {
+  const st = (isMine ? state.myStatus : state.partnerStatus) || {};
+  const name = isMine ? state.me.displayName : state.partner.displayName;
+  const activity = st.custom_activity || labelOf(ACTIVITY, st.activity) || '尚未分享';
+  const stale = !Number.isFinite(Date.parse(st.updated_at)) || Date.now() - Date.parse(st.updated_at) > 7200000;
+  const focus = labelOf(FOCUS, st.focus) || '可打扰';
+  const time = relativeStatusTime(st.updated_at).replace('更新', '');
+  return `<button class="glance-person ${stale ? 'is-stale' : ''}" data-open-panel="${isMine ? 'status' : 'tasks'}" aria-label="${escapeHtml(name)}${isMine ? '（我）' : ''}的状态" title="${escapeHtml(name)} · ${escapeHtml(activity)} · ${escapeHtml(focus)} · ${relativeStatusTime(st.updated_at)}${stale ? '（上次分享，可能已变化）' : ''}">
+    <span class="person-avatar" aria-hidden="true">${escapeHtml((name || '?')[0])}</span>
+    <span class="person-summary"><span class="person-top"><span class="person-name">${escapeHtml(name)}${isMine ? ' · 我' : ''}</span><span class="online-dot ${st.online ? 'online' : ''}" title="最近是否使用应用"></span><span class="person-time">${time}</span></span><span class="person-activity-row"><span class="current-activity">${stale ? '上次 · ' : ''}${escapeHtml(activity)}</span><span class="person-focus">${stale ? '' : escapeHtml(focus)}</span></span></span>
+  </button>`;
+}
 function renderMainContent() {
-  const myStatus = state.myStatus || {};
-  const partnerStatus = state.partnerStatus || {};
-  const myTasks = state.tasks.filter((t) => t.owner_id === state.me.id);
-  const partnerTasks = state.tasks.filter((t) => t.owner_id === state.partner.id);
-  const myDone = myTasks.filter((t) => t.is_completed).length;
-  const partnerDone = partnerTasks.filter((t) => t.is_completed).length;
-  const partnerName = (state.partner && state.partner.displayName) || 'TA';
-
+  const mine = state.myStatus || {};
+  const theirs = state.partnerStatus || {};
+  const myTasks = state.tasks.filter(t => t.owner_id === state.me.id);
+  const partnerTasks = state.tasks.filter(t => t.owner_id === state.partner.id);
+  const isToday = state.date === today();
+  const expanded = state.config.compact === false;
   content.innerHTML = `
-    ${state.syncError ? '<div class="sync-warning" role="status">暂时无法同步 · 当前显示上次内容 <button class="btn btn-sm" id="sync-retry">重试</button></div>' : ''}
-    <div class="card">
-      <div class="partner-card">
-        <div class="partner-avatar">${escapeHtml((partnerName || '?')[0])}</div>
-        <div class="partner-info">
-          <div class="partner-name">${escapeHtml(partnerName)} ${partnerStatus.online ? '<span class="online-dot"></span><span class="muted">最近使用过应用</span>' : '<span class="muted">暂未活跃</span>'}</div>
-          <div class="current-activity">${escapeHtml(partnerStatus.custom_activity || labelOf(ACTIVITY, partnerStatus.activity))}</div>
-          <div class="partner-meta">${labelOf(FOCUS, partnerStatus.focus)} · ${relativeStatusTime(partnerStatus.updated_at)}</div>
-          <div class="muted">${Date.now() - Date.parse(partnerStatus.updated_at) > 7200000 ? '这是上次分享的状态，可能已经变化' : '状态由本人主动分享'}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">我正在做什么 <button class="btn btn-ghost btn-sm" id="take-break">休息一下</button></div>
-      <div class="task-add"><input class="input" id="current-activity" maxlength="100" placeholder="比如：复习时间序列第三章"><button class="btn" id="activity-save">分享</button></div>
-      <div class="muted">${escapeHtml(myStatus.custom_activity || labelOf(ACTIVITY, myStatus.activity))} · ${relativeStatusTime(myStatus.updated_at)}</div>
-      <div class="status-row">
-        ${FOCUS.map((f) => `<button class="chip ${myStatus.focus === f.k ? 'active' : ''} ${f.k === 'slacking' ? 'slacking' : ''}" data-set-focus="${f.k}">${f.label}</button>`).join('')}
-      </div>
-      <div class="status-row">
-        ${ACTIVITY.map((a) => `<button class="chip ${myStatus.activity === a.k ? 'active' : ''}" data-set-activity="${a.k}">${a.label}</button>`).join('')}
-      </div>
-    </div>
-
-    <details id="daily-tasks" class="card"><summary>今日计划 · 我 ${myDone}/${myTasks.length} · TA ${partnerDone}/${partnerTasks.length}</summary>
-    <div class="card">
-      <div class="card-title">✅ 我今天 (${myDone}/${myTasks.length})</div>
-      <div class="task-add">
-        <input class="input" maxlength="500" id="task-input" placeholder="给自己加一个任务…">
-        <button class="btn" id="task-add">添加</button>
-      </div>
-      ${myTasks.length ? myTasks.map(renderTaskItem).join('') : '<div class="empty">还没有任务</div>'}
-    </div>
-
-    <div class="card">
-      <div class="card-title">👀 TA 今天 (${partnerDone}/${partnerTasks.length})</div>
-      ${partnerTasks.length ? partnerTasks.map(renderTaskItem).join('') : '<div class="empty">TA 还没有定任务</div>'}
-    </div>
-    </details>
-    <details id="small-interactions" class="card"><summary>一起休息 · 小互动</summary>    <div class="card">
-      <div class="card-title">🐟 摸鱼 & 抓包</div>
-      <div class="slack-row">
-        ${myStatus.focus === 'slacking'
-          ? '<button class="btn btn-ghost" id="slack-stop">结束摸鱼</button>'
-          : '<button class="btn" id="slack-start">偷偷摸个鱼 🐟</button>'}
-        ${partnerStatus.focus === 'slacking'
-          ? '<button class="btn btn-danger" id="slack-catch">抓 TA！🎯</button>'
-          : '<button class="btn btn-ghost" disabled>TA 很乖</button>'}
-      </div>
-      <div class="slack-stats">
-        <div class="slack-stat"><div class="slack-num">${state.slackStats[state.me.id] || 0}</div><div class="slack-label">我被抓</div></div>
-        <div class="slack-stat"><div class="slack-num">${state.slackStats[state.partner.id] || 0}</div><div class="slack-label">TA 被抓</div></div>
-      </div>
-    </div>
-
-</details>
-    <details id="companion-settings" class="card"><summary>设置与伙伴</summary>
-      <p class="muted">一次与一位伙伴共享日常；解除后双方停止共享，原任务不会展示给新伙伴。</p>
-      <button class="btn btn-ghost btn-block" id="pair-unbind">解除当前绑定</button>
-      <button class="btn btn-ghost btn-block" id="logout">退出登录</button>
-    </details>
+    ${state.syncError ? '<div class="sync-warning" role="status">同步暂不可用 · 显示上次近况 <button class="btn btn-sm btn-ghost" id="sync-retry">重试</button></div>' : ''}
+    <div class="glance-list">${glancePerson(false)}${glancePerson(true)}</div>
+    ${expanded ? `
+    <nav class="panel-tabs" aria-label="小窗详情">${[['status','状态'],['tasks','计划'],['play','互动'],['settings','设置']].map(([key,label]) => `<button data-panel="${key}" class="${state.panel === key ? 'active' : ''}" aria-pressed="${state.panel === key}">${label}</button>`).join('')}</nav>
+    <section class="card" ${state.panel === 'status' ? '' : 'hidden'} aria-label="更新我的状态">
+      <div class="card-title">我的状态 <button class="btn btn-sm btn-ghost" id="take-break">休息一下</button></div>
+      <div class="task-add"><label class="sr-only" for="current-activity">当前事项</label><input class="input" id="current-activity" maxlength="100" value="${escapeHtml(state.statusDraft)}" placeholder="此刻在做什么…"><button class="btn" id="activity-save">分享</button></div>
+      <div class="status-row">${FOCUS.map(f => `<button class="chip ${mine.focus === f.k ? 'active' : ''}" data-set-focus="${f.k}">${f.label}</button>`).join('')}</div>
+      <div class="status-row">${ACTIVITY.map(a => `<button class="chip ${mine.activity === a.k ? 'active' : ''}" data-set-activity="${a.k}">${a.label}</button>`).join('')}</div>
+      <div class="status-row">${MOODS.map(m => `<button class="chip ${mine.mood === m.k ? 'active' : ''}" data-set-mood="${m.k}">${m.label}</button>`).join('')}</div>
+    </section>
+    <section id="daily-tasks" ${state.panel === 'tasks' ? '' : 'hidden'} aria-label="双方计划">
+      <div class="card"><div class="card-title">${isToday ? '今天' : escapeHtml(state.date)}的计划 <span class="muted">用底部日历选日期</span></div>${!isToday ? '<p class="muted">回看历史计划；上方仍是最近分享的状态。</p>' : ''}
+      <div class="card-title">我 · ${myTasks.filter(t=>t.is_completed).length}/${myTasks.length}</div>
+      <div class="task-add"><label class="sr-only" for="task-input">添加任务</label><input class="input" maxlength="500" id="task-input" value="${escapeHtml(state.taskDraft)}" placeholder="给自己加一件事…" ${isToday ? '' : 'disabled'}><button class="btn" id="task-add" ${isToday ? '' : 'disabled'}>添加</button></div>
+      ${myTasks.length ? myTasks.map(renderTaskItem).join('') : '<div class="empty">没有计划也没关系，按自己的节奏来。</div>'}</div>
+      <div class="card"><div class="card-title">伙伴 · ${partnerTasks.filter(t=>t.is_completed).length}/${partnerTasks.length}</div>${partnerTasks.length ? partnerTasks.map(renderTaskItem).join('') : '<div class="empty">伙伴还没有添加计划</div>'}</div>
+    </section>
+    <section class="card" ${state.panel === 'play' ? '' : 'hidden'} aria-label="轻松互动">
+      <div class="card-title">摸鱼与抓包</div><div class="slack-row"><button class="btn btn-ghost" id="${mine.focus === 'slacking' ? 'slack-stop' : 'slack-start'}">${mine.focus === 'slacking' ? '结束摸鱼' : '摸个鱼 🐟'}</button><button class="btn btn-ghost" id="slack-catch" ${theirs.focus === 'slacking' && Date.now()-Date.parse(theirs.updated_at) <= 7200000 ? '' : 'disabled'}>抓个正着</button></div>
+      <div class="slack-stats"><div><div class="slack-num">${state.slackStats[state.me.id] || 0}</div>我被抓</div><div><div class="slack-num">${state.slackStats[state.partner.id] || 0}</div>伙伴被抓</div></div>
+    </section>
+    <section class="card" ${state.panel === 'settings' ? '' : 'hidden'} aria-label="小窗设置">
+      ${IS_NATIVE ? `<label class="setting-row">始终置顶<input type="checkbox" id="setting-pin" ${state.config.alwaysOnTop !== false ? 'checked' : ''}></label><label class="setting-row">开机自启<input type="checkbox" id="setting-autolaunch" ${state.config.autoLaunch ? 'checked' : ''}></label>` : '<p class="muted">桌面版支持置顶、托盘隐藏与开机自启。</p>'}
+      <p class="muted">底部七颗色点可换主题。一次与一位伙伴共享近况，可随时解除绑定。</p>
+      <button class="btn btn-ghost btn-block" id="pair-unbind">解除当前绑定</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button>
+    </section>` : ''}
   `;
 }
 
 function renderTaskItem(t) {
   const isMine = t.owner_id === state.me.id;
+  const editable = isMine && state.date === today();
   const review = (t.reviews && t.reviews[0]) || null;
   const open = state.reviewOpenTaskId === t.id;
   const draft = state.reviewDrafts[t.id];
   return `
     <div class="task-item">
-      ${isMine ? `<div class="task-check ${t.is_completed ? 'done' : ''}" data-toggle="${t.id}"></div>` : `<div class="task-check ${t.is_completed ? 'done' : ''}" style="cursor:default"></div>`}
+      ${editable ? `<button class="task-check ${t.is_completed ? 'done' : ''}" data-toggle="${t.id}" aria-label="${t.is_completed ? '取消完成' : '完成任务'}"></button>` : `<span class="task-check ${t.is_completed ? 'done' : ''}" aria-label="${t.is_completed ? '已完成' : '未完成'}"></span>`}
       <div class="task-body">
         <div class="task-text ${t.is_completed ? 'done' : ''}">${escapeHtml(t.content)}</div>
         ${t.completed_at ? `<div class="task-meta">完成于 ${fmtTime(t.completed_at)}</div>` : ''}
@@ -268,8 +297,8 @@ function renderTaskItem(t) {
       </div>
       <div class="task-actions">
         ${!isMine ? `<button class="icon-btn" title="回应" data-review-open="${t.id}">✏️</button>` : ''}
-        ${isMine && !t.is_completed ? `<button class="btn btn-ghost btn-sm" data-start-task="${t.id}">开始做</button>` : ''}
-        ${isMine ? `<button class="icon-btn" title="删除" data-task-del="${t.id}">🗑</button>` : ''}
+        ${editable && !t.is_completed ? `<button class="btn btn-ghost btn-sm" data-start-task="${t.id}">开始做</button>` : ''}
+        ${editable ? `<button class="icon-btn" title="删除" data-task-del="${t.id}">🗑</button>` : ''}
       </div>
     </div>
   `;
@@ -277,20 +306,21 @@ function renderTaskItem(t) {
 
 // ===== 数据加载 =====
 async function refreshAll() {
-  if (state.refreshing) return;
+  if (state.refreshing) { state.refreshQueued = true; return; }
   state.refreshing = true;
+  const requestedDate = state.date;
   try {
     const meRes = await api('/api/auth/me');
     const pairRes = await api('/api/pair/');
-    if (state.pairInfo?.pairId !== pairRes.pairId) { content.innerHTML = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null; }
+    if (state.pairInfo?.pairId !== pairRes.pairId) { content.innerHTML = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null; state.statusDraft = ''; state.taskDraft = ''; }
     state.me = meRes.user;
     state.pairInfo = pairRes;
     state.partner = pairRes.partner || null;
     if (pairRes.status === 'active') {
       const [tasksRes, statusRes, slackRes] = await Promise.all([
-        api('/api/tasks?date=' + today()), api('/api/status'), api('/api/slack/stats'),
+        api('/api/tasks?date=' + requestedDate), api('/api/status'), api('/api/slack/stats'),
       ]);
-      state.tasks = tasksRes.tasks || [];
+      if (requestedDate === state.date) state.tasks = tasksRes.tasks || [];
       state.myStatus = statusRes.mine;
       state.partnerStatus = statusRes.theirs;
       state.slackStats = slackRes.stats || {};
@@ -298,18 +328,23 @@ async function refreshAll() {
     state.syncError = false;
     render();
   } catch (e) {
-    if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); state.pairInfo = null; render(); }
+    if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); localStorage.removeItem('cc_token'); state.pairInfo = null; render(); }
     else { state.syncError = true; toast('暂时无法同步，请检查网络后重试'); render(); }
-  } finally { state.refreshing = false; }
+  } finally {
+    state.refreshing = false;
+    if (state.refreshQueued || requestedDate !== state.date) { state.refreshQueued = false; await refreshAll(); }
+  }
 }
 
 // ===== 事件 =====
 content.addEventListener('click', async (e) => {
-  const t = e.target;
+  const t = e.target.closest('button') || e.target;
+  if (t.dataset.openPanel) { await openPanel(t.dataset.openPanel); return; }
+  if (t.dataset.panel) { state.panel = t.dataset.panel; render(); return; }
   if (t.id === 'sync-retry') { await refreshAll(); return; }
   if (t.id === 'take-break' || t.dataset.startTask) {
     const task = state.tasks.find(item => item.id === t.dataset.startTask && item.owner_id === state.me.id && !item.is_completed);
-    if (t.dataset.startTask && !task) return;
+    if (t.dataset.startTask && (!task || state.date !== today())) return;
     try {
       await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: 'idle', customActivity: task ? task.content.slice(0, 100) : '休息一下', focus: task ? 'focusing' : 'available' }) });
       await refreshAll(); toast(task ? '已分享：正在做这件事' : '休息一下，也很好');
@@ -317,7 +352,7 @@ content.addEventListener('click', async (e) => {
     return;
   }
   if (t.id === 'logout') {
-    state.token = ''; localStorage.removeItem('token'); state.me = null; state.pairInfo = null; state.reviewDrafts = {}; state.reviewOpenTaskId = null;
+    state.token = ''; localStorage.removeItem('token'); localStorage.removeItem('cc_token'); state.me = null; state.pairInfo = null; state.statusDraft = ''; state.taskDraft = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null;
     content.innerHTML = ''; render(); return;
   }
   if (['pair-unbind', 'pair-cancel'].includes(t.id)) {
@@ -329,7 +364,7 @@ content.addEventListener('click', async (e) => {
     const input = document.getElementById('current-activity');
     const value = input.value.trim();
     if (!value) { toast('写一句你正在做什么吧'); return; }
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ customActivity: value }) }); input.value = ''; await refreshAll(); } catch (err) { toast(err.message); }
+    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ customActivity: value }) }); input.value = ''; state.statusDraft = ''; await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
 
@@ -391,6 +426,10 @@ content.addEventListener('click', async (e) => {
     try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ focus: t.dataset.setFocus }) }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
+  if (t.dataset.setMood) {
+    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ mood: t.dataset.setMood }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    return;
+  }
   if (t.dataset.setActivity) {
     try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: t.dataset.setActivity, customActivity: '' }) }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
@@ -441,6 +480,8 @@ content.addEventListener('click', async (e) => {
 });
 
 content.addEventListener('input', e => {
+  if (e.target.id === 'current-activity') state.statusDraft = e.target.value;
+  if (e.target.id === 'task-input') state.taskDraft = e.target.value;
   if (e.target.id === 'review-comment' && state.reviewOpenTaskId) state.reviewDrafts[state.reviewOpenTaskId] = { comment: e.target.value, emoji: state.reviewEmoji };
 });
 
@@ -456,18 +497,45 @@ content.addEventListener('keydown', (e) => {
 
 async function addTask() {
   const input = document.getElementById('task-input');
+  if (!input || state.date !== today()) return;
   const text = input.value.trim();
   if (!text) return;
   try {
-    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ content: text, date: today() }) });
-    input.value = '';
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ content: text, date: state.date }) });
+    input.value = ''; state.taskDraft = '';
     await refreshAll();
   } catch (err) { toast(err.message); }
 }
 
-// 标题栏
-document.getElementById('btn-min').addEventListener('click', () => window.widget.minimize());
-document.getElementById('btn-close').addEventListener('click', () => window.widget.hide());
+// 标题栏与角落控件
+function validDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value + 'T00:00:00Z').toISOString().slice(0,10) === value && value <= today();
+}
+document.getElementById('btn-mode').addEventListener('click', async () => {
+  if (state.phase !== 'main') return;
+  await saveConfig({ compact: state.config.compact === false }); render();
+});
+document.getElementById('btn-pin').addEventListener('click', async () => {
+  if (!IS_NATIVE) return;
+  await saveConfig({ alwaysOnTop: state.config.alwaysOnTop === false });
+});
+document.getElementById('btn-min').addEventListener('click', () => window.widget?.minimize());
+document.getElementById('btn-close').addEventListener('click', () => window.widget?.hide());
+document.getElementById('themes').addEventListener('click', async e => {
+  const theme = e.target.dataset.theme;
+  if (THEME_OPTIONS.some(([key]) => key === theme)) await saveConfig({ theme });
+});
+document.getElementById('plan-date').addEventListener('change', async e => {
+  const value = e.target.value;
+  if (!validDate(value)) { e.target.value = state.date; toast('请选择今天或过去的日期'); return; }
+  state.date = value; state.taskDraft = ''; state.tasks = []; state.reviewOpenTaskId = null; state.reviewDrafts = {};
+  await openPanel('tasks'); await refreshAll();
+});
+content.addEventListener('change', async e => {
+  if (e.target.id === 'setting-pin') await saveConfig({ alwaysOnTop: e.target.checked });
+  if (e.target.id === 'setting-autolaunch') await saveConfig({ autoLaunch: e.target.checked });
+});
+if (IS_NATIVE) bridge.onConfigChanged?.(config => { state.config = { ...state.config, ...config }; applyChrome(); });
 
 // 轮询
 setInterval(() => { if (state.token && document.visibilityState === 'visible') refreshAll(); }, 6000);
@@ -482,3 +550,5 @@ setInterval(() => { if (state.token && document.visibilityState === 'visible') r
     render();
   }
 })();
+
+if (!IS_NATIVE && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

@@ -1,8 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, screen, nativeImage } = require('electron');
 const { createAutoUpdateController } = require('./desktop/updater');
 const { normalizeConfig } = require('./desktop/config');
+const { windowBounds } = require('./desktop/window-state');
 const path = require('path');
 const fs = require('fs');
 
@@ -30,9 +31,11 @@ function writeConfig(cfg) {
 
 function createWindow() {
   const cfg = readConfig();
+  const saved = cfg.windowBounds;
+  const validSaved = saved && ['x','y','width','height'].every(key => Number.isFinite(saved[key])) && saved.width > 0 && saved.height > 0;
+  const display = validSaved ? screen.getDisplayMatching(saved) : screen.getPrimaryDisplay();
   mainWindow = new BrowserWindow({
-    width: 340,
-    height: 560,
+    ...windowBounds(cfg.compact ? 'compact' : 'expanded', display.workArea, validSaved ? saved : undefined),
     frame: false,
     transparent: true,
     resizable: false,
@@ -49,6 +52,13 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'widget', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  let savePositionTimer;
+  mainWindow.on('move', () => {
+    clearTimeout(savePositionTimer);
+    savePositionTimer = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) writeConfig({ ...readConfig(), windowBounds: mainWindow.getBounds() });
+    }, 250);
+  });
 
   mainWindow.on('close', (e) => {
     if (!app.isQuitting) {
@@ -84,7 +94,7 @@ function updateTrayMenu() {
         const c = readConfig();
         c.alwaysOnTop = item.checked;
         writeConfig(c);
-        if (mainWindow) mainWindow.setAlwaysOnTop(item.checked);
+        if (mainWindow) { mainWindow.setAlwaysOnTop(item.checked); mainWindow.webContents.send('config:changed', c); }
       },
     },
     {
@@ -96,6 +106,7 @@ function updateTrayMenu() {
         c.autoLaunch = item.checked;
         writeConfig(c);
         app.setLoginItemSettings({ openAtLogin: item.checked });
+        if (mainWindow) mainWindow.webContents.send('config:changed', c);
       },
     },
     { type: 'separator' },
@@ -111,7 +122,7 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  tray = new Tray(path.join(__dirname, 'build', 'icon.png'));
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 20, height: 20 }));
   tray.setToolTip('伙伴打卡');
   updateTrayMenu();
   tray.on('click', () => {
@@ -125,7 +136,10 @@ function createTray() {
 ipcMain.handle('config:get', () => readConfig());
 
 ipcMain.handle('config:set', (_e, patch) => {
-  const c = { ...readConfig(), ...patch };
+  patch = patch && typeof patch === 'object' ? patch : {};
+  const allowed = {};
+  for (const key of ['theme', 'compact', 'alwaysOnTop', 'autoLaunch', 'apiBase']) if (Object.hasOwn(patch, key)) allowed[key] = patch[key];
+  const c = normalizeConfig({ ...readConfig(), ...allowed });
   writeConfig(c);
   if (patch.autoLaunch !== undefined) {
     app.setLoginItemSettings({ openAtLogin: !!patch.autoLaunch });
@@ -134,7 +148,17 @@ ipcMain.handle('config:set', (_e, patch) => {
     mainWindow.setAlwaysOnTop(!!patch.alwaysOnTop);
   }
   updateTrayMenu();
+  if (mainWindow) mainWindow.webContents.send('config:changed', c);
   return c;
+});
+
+ipcMain.handle('window:mode', (_e, mode) => {
+  if (!['compact', 'expanded', 'auth'].includes(mode) || !mainWindow) return false;
+  const current = mainWindow.getBounds();
+  const display = screen.getDisplayMatching(current);
+  mainWindow.setBounds(windowBounds(mode, display.workArea, current));
+  if (mode !== 'auth') writeConfig({ ...readConfig(), compact: mode === 'compact', windowBounds: mainWindow.getBounds() });
+  return true;
 });
 
 ipcMain.handle('window:minimize', () => mainWindow && mainWindow.minimize());
