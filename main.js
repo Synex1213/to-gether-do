@@ -13,9 +13,10 @@ const configPath = () => path.join(app.getPath('userData'), 'config.json');
 
 function readConfig() {
   try {
-    return JSON.parse(fs.readFileSync(configPath(), 'utf8'));
+    const saved = JSON.parse(fs.readFileSync(configPath(), 'utf8'));
+    return { ...saved, apiBase: saved.apiBase || 'https://to-gether-do.onrender.com' };
   } catch (e) {
-    return { apiBase: '', autoLaunch: false, alwaysOnTop: true };
+    return { apiBase: 'https://to-gether-do.onrender.com', autoLaunch: false, alwaysOnTop: true };
   }
 }
 

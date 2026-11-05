@@ -5,6 +5,16 @@ const path = require('path');
 const { initDb, isMemory } = require('./db');
 
 const app = express();
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') && req.headers.origin === 'null') {
+    res.setHeader('Access-Control-Allow-Origin', 'null');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 
 app.use((req, res, next) => {
@@ -43,14 +53,18 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 
-initDb()
+module.exports = initDb()
   .then(() => {
-    app.listen(port, host, () => {
+    const server = app.listen(port, host, () => {
       console.log(
         `Couple Connect running at http://${host}:${port} (store: ${
           isMemory ? 'memory' : 'postgres'
         })`
       );
+    });
+    return new Promise((resolve, reject) => {
+      server.once('listening', () => resolve(server));
+      server.once('error', reject);
     });
   })
   .catch((e) => {

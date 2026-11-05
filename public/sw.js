@@ -1,11 +1,12 @@
 'use strict';
 
-const CACHE = 'couple-connect-v1';
+const CACHE = 'couple-connect-v2';
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './ui-state.js',
   './manifest.webmanifest',
   './icon.svg',
 ];

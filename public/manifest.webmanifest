@@ -1,7 +1,7 @@
 {
   "name": "两个人的打卡",
-  "short_name": "情侣打卡",
-  "description": "情侣远程任务打卡、状态与互相批阅",
+  "short_name": "伙伴打卡",
+  "description": "与一位伙伴分享当前状态、每日计划和鼓励",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

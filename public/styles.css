@@ -580,3 +580,14 @@ label.field .input {
     grid-template-columns: 1fr;
   }
 }
+
+/* Companion-first hierarchy: current status stays visible, details stay optional. */
+summary { cursor: pointer; font-weight: 600; padding: 8px 0; color: #245f57; }
+details > p { margin: 10px 0; line-height: 1.6; }
+details[open] > summary { margin-bottom: 10px; }
+.current-activity { font-size: 19px; font-weight: 600; margin: 10px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.partner-meta, .meta { overflow-wrap: anywhere; }
+.btn:disabled { opacity: .5; cursor: default; }
+button:focus-visible, summary:focus-visible { outline: 2px solid #227968; outline-offset: 3px; }
+
+#daily-tasks, #small-interactions, #companion-settings { margin-top: 14px; }
