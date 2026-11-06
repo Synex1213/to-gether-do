@@ -5,6 +5,11 @@ process.env.PORT = '0';
 process.env.HOST = '127.0.0.1';
 process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
+const originalFetch = global.fetch;
+const { FALLBACK } = require('../src/releases');
+global.fetch = (url, options) => String(url) === 'https://api.github.com/repos/Synex1213/to-gether-do/releases/latest'
+  ? Promise.resolve({ok:true,json:async()=>({tag_name:'v2.1.0',assets:[{name:'couple-connect-setup-2.1.0.exe',size:FALLBACK.size,browser_download_url:FALLBACK.url}]})})
+  : originalFetch(url, options);
 const serverReady = require('../src/server');
 
 test('pair lifecycle, stale invitations, isolation and concurrent joins', async () => {
@@ -20,7 +25,13 @@ test('pair lifecycle, stale invitations, isolation and concurrent joins', async 
   }
   try {
     const shell = await fetch(base.replace('/api', '/'));
-    assert.match(await shell.text(), /\/widget\/app.js/);
+    const landing = await shell.text();
+    assert.match(landing, /\/website.js/);assert.match(landing, /\/download\/windows/);assert.doesNotMatch(landing, /auth-password|\/widget\/app.js/);
+    const workspace = await fetch(base.replace('/api','/app/'));
+    assert.match(await workspace.text(), /\/widget\/app.js/);
+    const release = await fetch(base + '/release');assert.equal((await release.json()).version,'2.1.0');
+    const download = await fetch(base.replace('/api','/download/windows'),{redirect:'manual'});
+    assert.equal(download.status,302);assert.equal(download.headers.get('location'),FALLBACK.url);
     const renderer = await fetch(base.replace('/api', '/widget/app.js'));
     assert.match(renderer.headers.get('content-type'), /javascript/);
     assert.match(await renderer.text(), /THEME_OPTIONS/);
@@ -69,5 +80,5 @@ test('pair lifecycle, stale invitations, isolation and concurrent joins', async 
     const preflight = await fetch(base + '/status', { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Headers': 'authorization,content-type' } });
     assert.equal(preflight.status, 204);
     assert.equal(preflight.headers.get('access-control-allow-origin'), 'null');
-  } finally { await new Promise(resolve => server.close(resolve)); }
+  } finally { global.fetch = originalFetch; await new Promise(resolve => server.close(resolve)); }
 });

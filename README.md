@@ -2,6 +2,16 @@
 
 一个放在电脑桌面角落的双人近况小窗。各自做事，想起来时看一眼；适合朋友、学习搭子、同事，也可以用于情侣。
 
+## 官网与桌面软件
+
+官网首页用于产品介绍、可交互的示例演示和 Windows 安装包下载。演示使用虚构的“小林”和“阿然”，内容只留在当前页面，刷新或重置后恢复；不读取登录信息，不调用真实状态或任务接口。
+
+- `/`：产品官网，包含桌面场景、七色演示、使用步骤和常见问题。
+- `/download/windows`：跳转到 GitHub 最新正式版 Windows 安装包；查询暂不可用时使用已验证的 2.1.0 安装文件。
+- `/api/release`：公共版本信息，服务端缓存并合并并发查询。
+- `/app/`：保留原浏览器工作区作为兼容入口；官网不引导访客在浏览器内注册或打卡。
+- 桌面版继续使用本地 `widget/`，现有账号、配对和任务 API 保持不变。
+
 ## 2.0：回到桌面小窗
 
 这版以原始 `couple-widget-upload.zip` 为界面基线。默认不是整页看板，而是 **260×244** 的双人近况卡，首次出现在桌面右下角。收起状态固定为适配现有内容的 260 像素宽度，内部排布保持不变。点「展开」才恢复原来的 **340×560** 小窗，处理状态、计划、互动与设置。拖动标题栏可移动位置，重启后会记住位置。
@@ -41,7 +51,7 @@ npm ci --include=dev
 npm start
 ```
 
-网页入口为 `http://localhost:3000`。网页与桌面使用同一份 `widget/` 界面；系统置顶、托盘和开机自启仅在桌面版生效。
+官网入口为 `http://localhost:3000`；兼容浏览器工作区为 `http://localhost:3000/app/`，与桌面共用 `widget/`。系统置顶、托盘、边缘吸附和位置锁定仅在桌面版生效。开发预览可运行 `npm run dev -- --host 127.0.0.1 --port 4173`。
 
 ```bash
 npm run desktop
@@ -80,7 +90,9 @@ Render Web Service：
 | `desktop/config.js` | 默认地址、旧地址迁移与外观偏好 |
 | `desktop/window-state.js`、`desktop/window-behavior.js` | 小窗尺寸、边缘吸附、锁定与位置保存 |
 | `src/` | 账号、配对、计划、状态、回应与轻松互动 API |
-| `public/index.html` | 自动同步的网页外壳；修改 widget 外壳后运行 `npm run sync:web` |
+| `public/index.html`、`public/website.css`、`public/website.js` | 产品官网和本地示例演示 |
+| `public/app/index.html` | 兼容工作区外壳；修改 widget 外壳后运行 `npm run sync:web`，不会覆盖官网 |
+| `src/releases.js` | 最新安装包查询、校验、缓存及已验证下载回退 |
 | `test/` | 配对隔离、并发加入、主题持久化、收起草稿保留、日历历史及窗口边界检查 |
 
 自动化覆盖接口、DOM 交互与窗口几何规则。Windows CI 验证安装包生成；实际 Windows 桌面置顶、任务栏与安装体验仍需在 Windows 上检查。

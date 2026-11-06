@@ -3,6 +3,8 @@
 const express = require('express');
 const path = require('path');
 const { initDb, isMemory } = require('./db');
+const { createReleaseResolver } = require('./releases');
+const latestRelease = createReleaseResolver();
 
 const app = express();
 app.use((req, res, next) => {
@@ -31,6 +33,12 @@ app.use('/api/tasks', require('./routes/tasks.routes'));
 app.use('/api/status', require('./routes/status.routes'));
 app.use('/api/reviews', require('./routes/reviews.routes'));
 app.use('/api/slack', require('./routes/slacking.routes'));
+app.get('/api/release', async (_req, res, next) => {
+  try { res.set('Cache-Control','public, max-age=60').json(await latestRelease()); } catch (err) { next(err); }
+});
+app.get('/download/windows', async (_req, res, next) => {
+  try { res.set('Cache-Control','no-store').redirect(302, (await latestRelease()).url); } catch (err) { next(err); }
+});
 
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, store: isMemory ? 'memory' : 'postgres' })
@@ -40,7 +48,7 @@ const publicDir = path.join(__dirname, '..', 'public');
 app.use('/widget', express.static(path.join(__dirname, '..', 'widget')));
 app.use(express.static(publicDir));
 
-// SPA 回退：非 /api 请求统一返回 index.html
+// Marketing is the default. The previous browser workspace remains at /app/.
 app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
