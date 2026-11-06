@@ -6,6 +6,7 @@ const area={x:0,y:0,width:1920,height:1040};
 test('small window starts in a desktop corner and expands upward, preserving its right and bottom edges',()=>{
   const mini=windowBounds('compact',area);
   assert.deepEqual({width:mini.width,height:mini.height},SIZES.compact);
+  assert.equal(mini.width,260);assert.equal(mini.height,244);
   assert.equal(mini.x+mini.width,1902);assert.equal(mini.y+mini.height,1022);
   const expanded=windowBounds('expanded',area,mini);
   assert.equal(expanded.width,340);assert.equal(expanded.height,560);
