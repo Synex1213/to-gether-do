@@ -10,6 +10,9 @@ const bridge = window.widget || {
   setMode: async () => true,
 };
 let windowMode = '';
+const DURATIONS = [[0, '不限时间'], [30, '30 分钟'], [60, '1 小时'], [120, '2 小时']];
+let welcomeShown = false;
+let statusSaving = false;
 
 
 const state = {
@@ -81,12 +84,14 @@ async function api(path, opts = {}) {
 }
 
 async function loadConfig() {
-  state.config = { apiBase: IS_NATIVE ? 'https://to-gether-do-2.onrender.com' : location.origin, compact: true, theme: 'green', alwaysOnTop: true, autoLaunch: false, ...await bridge.getConfig() };
+  state.config = { apiBase: IS_NATIVE ? 'https://to-gether-do-2.onrender.com' : location.origin, compact: true, theme: 'green', alwaysOnTop: true, autoLaunch: false, snapToEdge: true, positionLocked: false, onboardingSeen: false, statusDurationMinutes: 0, recentActivities: [], ...await bridge.getConfig() };
   if (!THEME_OPTIONS.some(([key]) => key === state.config.theme)) state.config.theme = 'green';
+  if (!DURATIONS.some(([minutes]) => minutes === state.config.statusDurationMinutes)) state.config.statusDurationMinutes = 0;
+  state.config.recentActivities = Array.isArray(state.config.recentActivities) ? state.config.recentActivities.filter(key => ACTIVITY.some(a => a.k === key)).slice(0,3) : [];
   applyChrome();
 }
 async function saveConfig(patch) {
-  state.config = await bridge.setConfig(patch);
+  state.config = { ...state.config, ...await bridge.setConfig(patch) };
   applyChrome();
 }
 
@@ -111,6 +116,7 @@ function applyChrome() {
   if (!state.config) return;
   document.documentElement.dataset.theme = state.config.theme;
   document.body.classList.toggle('web-host', !IS_NATIVE);
+  document.body.classList.toggle('position-locked', IS_NATIVE && state.config.positionLocked);
   const compact = state.phase === 'main' && state.config.compact !== false;
   const mode = ['main','loading'].includes(state.phase) ? (state.config.compact !== false ? 'compact' : 'expanded') : 'auth';
   document.body.classList.toggle('is-compact', compact);
@@ -118,6 +124,7 @@ function applyChrome() {
   const modeButton = document.getElementById('btn-mode');
   modeButton.textContent = compact ? '展开' : '收起';
   modeButton.disabled = state.phase !== 'main';
+  modeButton.hidden = state.phase !== 'main';
   modeButton.setAttribute('aria-expanded', String(!compact));
   modeButton.title = compact ? '展开状态、计划与互动' : '收起为双方近况小窗';
   const pin = document.getElementById('btn-pin');
@@ -127,6 +134,16 @@ function applyChrome() {
   if (pinSetting) pinSetting.checked = state.config.alwaysOnTop !== false;
   const launchSetting = document.getElementById('setting-autolaunch');
   if (launchSetting) launchSetting.checked = Boolean(state.config.autoLaunch);
+  for (const [id,key] of [['setting-lock','positionLocked'],['setting-snap','snapToEdge']]) {
+    const setting = document.getElementById(id);
+    if (setting) setting.checked = Boolean(state.config[key]);
+  }
+  const durationSetting = document.getElementById('setting-duration');
+  if (durationSetting) durationSetting.value = String(state.config.statusDurationMinutes);
+  if (state.phase !== 'main') {
+    document.getElementById('quick-status').hidden = true;
+    document.getElementById('onboarding').hidden = true;
+  }
   const date = document.getElementById('plan-date');
   if (document.activeElement !== date) date.value = state.date;
   date.max = today(); date.disabled = state.phase !== 'main';
@@ -218,17 +235,58 @@ function renderPair() {
 
 function renderMain() {
   renderPreservingDrafts(content, renderMainContent);
+  if (!welcomeShown && state.config.onboardingSeen !== true) {
+    welcomeShown = true;
+    showWelcome();
+    void saveConfig({ onboardingSeen: true }).catch(() => {});
+  }
+}
+function statusExpired(st) { return st?.expired === true || Boolean(st?.expires_at && Date.parse(st.expires_at) <= Date.now()); }
+function durationOptions(selected) { return DURATIONS.map(([minutes,label]) => `<option value="${minutes}" ${minutes === selected ? 'selected' : ''}>${label}</option>`).join(''); }
+function showWelcome() {
+  const panel = document.getElementById('onboarding');
+  panel.innerHTML = `<div class="overlay-heading">偶尔看一眼就好</div><p class="onboarding-copy">点自己改状态，点伙伴看计划。<br>右键自己，可以快速切换。<br>${IS_NATIVE ? '关闭小窗后，仍可从托盘打开。' : '点展开，可以查看更多。'}</p><button class="btn btn-sm btn-block" id="welcome-dismiss">知道了</button>`;
+  panel.hidden = false;
+}
+function closeQuickStatus(restoreFocus = false) {
+  const panel = document.getElementById('quick-status');
+  const wasOpen = !panel.hidden;
+  panel.hidden = true;
+  if (wasOpen && restoreFocus) content.querySelector('[data-person="mine"]')?.focus();
+}
+function openQuickStatus() {
+  if (state.phase !== 'main' || statusSaving) return;
+  document.getElementById('onboarding').hidden = true;
+  const order = [...new Set([...state.config.recentActivities, 'study','work','eat','idle','sleep','commute'])];
+  const panel = document.getElementById('quick-status');
+  panel.innerHTML = `<div class="overlay-heading">快速改状态<button class="icon-btn" id="quick-close" aria-label="关闭快速状态">×</button></div><div class="quick-grid">${order.map(key => `<button class="btn btn-ghost" data-quick-activity="${key}">${key === 'idle' ? '休息' : labelOf(ACTIVITY,key)}</button>`).join('')}</div><label class="duration-row">本次有效期<select id="quick-duration" aria-label="本次状态有效期">${durationOptions(state.config.statusDurationMinutes)}</select></label>`;
+  panel.hidden = false;
+  panel.querySelector('[data-quick-activity]')?.focus();
+}
+async function shareStatus(patch, minutes = state.config.statusDurationMinutes) {
+  if (statusSaving) throw new Error('正在更新状态，请稍候');
+  statusSaving = true;
+  try {
+    const isActivity = ['activity','focus','customActivity'].some(key => Object.hasOwn(patch,key));
+    await api('/api/status', { method:'PUT', body:JSON.stringify({ ...patch, ...(isActivity ? { durationMinutes: minutes } : {}) }) });
+    if (patch.activity) {
+      const recentActivities = [...new Set([patch.activity, ...state.config.recentActivities])].slice(0,3);
+      try { await saveConfig({ recentActivities }); } catch (_) { state.config.recentActivities = recentActivities; }
+    }
+    return true;
+  } finally { statusSaving = false; }
 }
 function glancePerson(isMine) {
   const st = (isMine ? state.myStatus : state.partnerStatus) || {};
   const name = isMine ? state.me.displayName : state.partner.displayName;
   const activity = st.custom_activity || labelOf(ACTIVITY, st.activity) || '尚未分享';
-  const stale = !Number.isFinite(Date.parse(st.updated_at)) || Date.now() - Date.parse(st.updated_at) > 7200000;
+  const expired = statusExpired(st);
+  const stale = expired || !Number.isFinite(Date.parse(st.updated_at)) || Date.now() - Date.parse(st.updated_at) > 7200000;
   const focus = labelOf(FOCUS, st.focus) || '可打扰';
-  const time = relativeStatusTime(st.updated_at).replace('更新', '');
-  return `<button class="glance-person ${stale ? 'is-stale' : ''}" data-open-panel="${isMine ? 'status' : 'tasks'}" aria-label="${escapeHtml(name)}${isMine ? '（我）' : ''}的状态" title="${escapeHtml(name)} · ${escapeHtml(activity)} · ${escapeHtml(focus)} · ${relativeStatusTime(st.updated_at)}${stale ? '（上次分享，可能已变化）' : ''}">
+  const time = expired ? '已到期' : relativeStatusTime(st.updated_at).replace('更新', '');
+  return `<button class="glance-person ${stale ? 'is-stale' : ''}" data-person="${isMine ? 'mine' : 'partner'}" data-open-panel="${isMine ? 'status' : 'tasks'}" aria-label="${escapeHtml(name)}${isMine ? '（我）' : ''}的状态" title="${escapeHtml(name)} · ${escapeHtml(activity)} · ${expired ? '有效期已结束，待更新' : escapeHtml(focus)} · ${relativeStatusTime(st.updated_at)}${stale ? '（上次分享，可能已变化）' : ''}${isMine ? '；右键快速改状态' : ''}">
     <span class="person-avatar" aria-hidden="true">${escapeHtml((name || '?')[0])}</span>
-    <span class="person-summary"><span class="person-top"><span class="person-name">${escapeHtml(name)}${isMine ? ' · 我' : ''}</span><span class="online-dot ${st.online ? 'online' : ''}" title="最近是否使用应用"></span><span class="person-time">${time}</span></span><span class="person-activity-row"><span class="current-activity">${stale ? '上次 · ' : ''}${escapeHtml(activity)}</span><span class="person-focus">${stale ? '' : escapeHtml(focus)}</span></span></span>
+    <span class="person-summary"><span class="person-top"><span class="person-name">${escapeHtml(name)}${isMine ? ' · 我' : ''}</span><span class="online-dot ${st.online ? 'online' : ''}" title="最近是否使用应用"></span><span class="person-time">${time}</span></span><span class="person-activity-row"><span class="current-activity">${expired ? '待更新 · ' : stale ? '上次 · ' : ''}${escapeHtml(activity)}</span><span class="person-focus">${stale ? '' : escapeHtml(focus)}</span></span></span>
   </button>`;
 }
 function renderMainContent() {
@@ -258,11 +316,15 @@ function renderMainContent() {
       <div class="card"><div class="card-title">伙伴 · ${partnerTasks.filter(t=>t.is_completed).length}/${partnerTasks.length}</div>${partnerTasks.length ? partnerTasks.map(renderTaskItem).join('') : '<div class="empty">伙伴还没有添加计划</div>'}</div>
     </section>
     <section class="card" ${state.panel === 'play' ? '' : 'hidden'} aria-label="轻松互动">
-      <div class="card-title">摸鱼与抓包</div><div class="slack-row"><button class="btn btn-ghost" id="${mine.focus === 'slacking' ? 'slack-stop' : 'slack-start'}">${mine.focus === 'slacking' ? '结束摸鱼' : '摸个鱼 🐟'}</button><button class="btn btn-ghost" id="slack-catch" ${theirs.focus === 'slacking' && Date.now()-Date.parse(theirs.updated_at) <= 7200000 ? '' : 'disabled'}>抓个正着</button></div>
+      <div class="card-title">摸鱼与抓包</div><div class="slack-row"><button class="btn btn-ghost" id="${mine.focus === 'slacking' && !statusExpired(mine) ? 'slack-stop' : 'slack-start'}">${mine.focus === 'slacking' && !statusExpired(mine) ? '结束摸鱼' : '摸个鱼 🐟'}</button><button class="btn btn-ghost" id="slack-catch" ${!statusExpired(theirs) && theirs.focus === 'slacking' && Date.now()-Date.parse(theirs.updated_at) <= 7200000 ? '' : 'disabled'}>抓个正着</button></div>
       <div class="slack-stats"><div><div class="slack-num">${state.slackStats[state.me.id] || 0}</div>我被抓</div><div><div class="slack-num">${state.slackStats[state.partner.id] || 0}</div>伙伴被抓</div></div>
     </section>
     <section class="card" ${state.panel === 'settings' ? '' : 'hidden'} aria-label="小窗设置">
       ${IS_NATIVE ? `<label class="setting-row">始终置顶<input type="checkbox" id="setting-pin" ${state.config.alwaysOnTop !== false ? 'checked' : ''}></label><label class="setting-row">开机自启<input type="checkbox" id="setting-autolaunch" ${state.config.autoLaunch ? 'checked' : ''}></label>` : '<p class="muted">桌面版支持置顶、托盘隐藏与开机自启。</p>'}
+      ${IS_NATIVE ? `<label class="setting-row">靠近边缘自动吸附<input type="checkbox" id="setting-snap" ${state.config.snapToEdge ? 'checked' : ''}></label><label class="setting-row">锁定窗口位置<input type="checkbox" id="setting-lock" ${state.config.positionLocked ? 'checked' : ''}></label>` : ''}
+      <label class="setting-row">默认状态有效期<select id="setting-duration">${durationOptions(state.config.statusDurationMinutes)}</select></label>
+      <p class="muted">有效期用于之后分享的状态；到期显示待更新。右键自己的状态卡可临时选择本次时长。</p>
+      <button class="btn btn-sm btn-ghost" id="show-help">操作提示</button>
       <p class="muted">底部七颗色点可换主题。一次与一位伙伴共享近况，可随时解除绑定。</p>
       <button class="btn btn-ghost btn-block" id="pair-unbind">解除当前绑定</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button>
     </section>` : ''}
@@ -329,7 +391,7 @@ async function refreshAll() {
     render();
   } catch (e) {
     if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); localStorage.removeItem('cc_token'); state.pairInfo = null; render(); }
-    else { state.syncError = true; toast('暂时无法同步，请检查网络后重试'); render(); }
+    else { const firstFailure = !state.syncError; state.syncError = true; if (firstFailure) toast('暂时无法同步，请检查网络后重试'); render(); }
   } finally {
     state.refreshing = false;
     if (state.refreshQueued || requestedDate !== state.date) { state.refreshQueued = false; await refreshAll(); }
@@ -339,6 +401,7 @@ async function refreshAll() {
 // ===== 事件 =====
 content.addEventListener('click', async (e) => {
   const t = e.target.closest('button') || e.target;
+  if (t.id === 'show-help') { showWelcome(); return; }
   if (t.dataset.openPanel) { await openPanel(t.dataset.openPanel); return; }
   if (t.dataset.panel) { state.panel = t.dataset.panel; render(); return; }
   if (t.id === 'sync-retry') { await refreshAll(); return; }
@@ -346,7 +409,7 @@ content.addEventListener('click', async (e) => {
     const task = state.tasks.find(item => item.id === t.dataset.startTask && item.owner_id === state.me.id && !item.is_completed);
     if (t.dataset.startTask && (!task || state.date !== today())) return;
     try {
-      await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: 'idle', customActivity: task ? task.content.slice(0, 100) : '休息一下', focus: task ? 'focusing' : 'available' }) });
+      await shareStatus({ activity: 'idle', customActivity: task ? task.content.slice(0, 100) : '休息一下', focus: task ? 'focusing' : 'available' });
       await refreshAll(); toast(task ? '已分享：正在做这件事' : '休息一下，也很好');
     } catch (err) { toast(err.message); }
     return;
@@ -364,7 +427,7 @@ content.addEventListener('click', async (e) => {
     const input = document.getElementById('current-activity');
     const value = input.value.trim();
     if (!value) { toast('写一句你正在做什么吧'); return; }
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ customActivity: value }) }); input.value = ''; state.statusDraft = ''; await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ customActivity: value }); input.value = ''; state.statusDraft = ''; await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
 
@@ -423,24 +486,24 @@ content.addEventListener('click', async (e) => {
   if (t.id === 'pair-refresh') { await refreshAll(); return; }
 
   if (t.dataset.setFocus) {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ focus: t.dataset.setFocus }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ focus: t.dataset.setFocus }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
   if (t.dataset.setMood) {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ mood: t.dataset.setMood }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ mood: t.dataset.setMood }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
   if (t.dataset.setActivity) {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ activity: t.dataset.setActivity, customActivity: '' }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ activity: t.dataset.setActivity, customActivity: '' }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
 
   if (t.id === 'slack-start') {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ focus: 'slacking' }) }); toast('开始摸鱼 🐟'); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ focus: 'slacking' }); toast('开始摸鱼 🐟'); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
   if (t.id === 'slack-stop') {
-    try { await api('/api/status', { method: 'PUT', body: JSON.stringify({ focus: 'available' }) }); await refreshAll(); } catch (err) { toast(err.message); }
+    try { await shareStatus({ focus: 'available' }); await refreshAll(); } catch (err) { toast(err.message); }
     return;
   }
   if (t.id === 'slack-catch') {
@@ -534,11 +597,49 @@ document.getElementById('plan-date').addEventListener('change', async e => {
 content.addEventListener('change', async e => {
   if (e.target.id === 'setting-pin') await saveConfig({ alwaysOnTop: e.target.checked });
   if (e.target.id === 'setting-autolaunch') await saveConfig({ autoLaunch: e.target.checked });
+  if (e.target.id === 'setting-lock') await saveConfig({ positionLocked: e.target.checked });
+  if (e.target.id === 'setting-snap') await saveConfig({ snapToEdge: e.target.checked });
+  if (e.target.id === 'setting-duration') await saveConfig({ statusDurationMinutes: Number(e.target.value) });
+});
+content.addEventListener('contextmenu', e => {
+  if (!e.target.closest('[data-person="mine"]')) return;
+  e.preventDefault(); openQuickStatus();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeQuickStatus(true); document.getElementById('onboarding').hidden = true;
+  }
+  if ((e.key === 'ContextMenu' || e.key === 'F10' && e.shiftKey) && document.activeElement?.matches('[data-person="mine"]')) {
+    e.preventDefault(); openQuickStatus();
+  }
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#quick-status')) closeQuickStatus();
+});
+window.addEventListener('blur', () => closeQuickStatus());
+document.getElementById('onboarding').addEventListener('click', e => {
+  if (e.target.closest('#welcome-dismiss')) document.getElementById('onboarding').hidden = true;
+});
+document.getElementById('quick-status').addEventListener('click', async e => {
+  const button = e.target.closest('button');
+  if (!button) return;
+  if (button.id === 'quick-close') { closeQuickStatus(true); return; }
+  const activity = button.dataset.quickActivity;
+  if (!ACTIVITY.some(a => a.k === activity) || statusSaving) return;
+  const minutes = Number(document.getElementById('quick-duration').value);
+  const panel = document.getElementById('quick-status');
+  for (const control of panel.querySelectorAll('button,select')) control.disabled = true;
+  try {
+    const saved = await shareStatus({ activity, customActivity: activity === 'idle' ? '休息' : '', focus: ['study','work'].includes(activity) ? 'focusing' : 'available' }, minutes);
+    if (saved) { closeQuickStatus(true); await refreshAll(); toast('状态已更新'); }
+  } catch (err) { toast(err.message); }
+  finally { for (const control of panel.querySelectorAll('button,select')) control.disabled = false; }
 });
 if (IS_NATIVE) bridge.onConfigChanged?.(config => { state.config = { ...state.config, ...config }; applyChrome(); });
 
 // 轮询
 setInterval(() => { if (state.token && document.visibilityState === 'visible') refreshAll(); }, 6000);
+document.addEventListener('visibilitychange', () => { if (state.token && document.visibilityState === 'visible') void refreshAll(); });
 
 // 启动
 (async () => {

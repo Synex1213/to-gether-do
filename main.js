@@ -4,6 +4,7 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, screen, nativeImage } =
 const { createAutoUpdateController } = require('./desktop/updater');
 const { normalizeConfig } = require('./desktop/config');
 const { windowBounds } = require('./desktop/window-state');
+const { attachWindowBehavior } = require('./desktop/window-behavior');
 const path = require('path');
 const fs = require('fs');
 
@@ -39,6 +40,7 @@ function createWindow() {
     frame: false,
     transparent: true,
     resizable: false,
+    movable: !cfg.positionLocked,
     alwaysOnTop: cfg.alwaysOnTop !== false,
     skipTaskbar: false,
     show: false,
@@ -52,12 +54,10 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'widget', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
-  let savePositionTimer;
-  mainWindow.on('move', () => {
-    clearTimeout(savePositionTimer);
-    savePositionTimer = setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) writeConfig({ ...readConfig(), windowBounds: mainWindow.getBounds() });
-    }, 250);
+  attachWindowBehavior(mainWindow, {
+    getConfig: readConfig,
+    getWorkArea: bounds => screen.getDisplayMatching(bounds).workArea,
+    persistBounds: bounds => writeConfig({ ...readConfig(), windowBounds: bounds }),
   });
 
   mainWindow.on('close', (e) => {
@@ -81,6 +81,14 @@ function updateTrayMenu() {
       },
     },
     { type: 'separator' },
+    {
+      label: '锁定窗口位置', type: 'checkbox', checked: cfg.positionLocked,
+      click: item => {
+        const c = normalizeConfig({ ...readConfig(), positionLocked: item.checked });
+        writeConfig(c);
+        if (mainWindow) { mainWindow.setMovable(!c.positionLocked); mainWindow.webContents.send('config:changed', c); }
+      },
+    },
     {
       label: '检查软件更新',
       enabled: app.isPackaged && process.platform === 'win32',
@@ -138,9 +146,10 @@ ipcMain.handle('config:get', () => readConfig());
 ipcMain.handle('config:set', (_e, patch) => {
   patch = patch && typeof patch === 'object' ? patch : {};
   const allowed = {};
-  for (const key of ['theme', 'compact', 'alwaysOnTop', 'autoLaunch', 'apiBase']) if (Object.hasOwn(patch, key)) allowed[key] = patch[key];
+  for (const key of ['theme', 'compact', 'alwaysOnTop', 'autoLaunch', 'apiBase', 'snapToEdge', 'positionLocked', 'onboardingSeen', 'statusDurationMinutes', 'recentActivities']) if (Object.hasOwn(patch, key)) allowed[key] = patch[key];
   const c = normalizeConfig({ ...readConfig(), ...allowed });
   writeConfig(c);
+  if (patch.positionLocked !== undefined && mainWindow) mainWindow.setMovable(!c.positionLocked);
   if (patch.autoLaunch !== undefined) {
     app.setLoginItemSettings({ openAtLogin: !!patch.autoLaunch });
   }

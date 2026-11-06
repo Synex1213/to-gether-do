@@ -30,7 +30,7 @@ function harness({ active=true, compact=true, native=true, token=true, config={}
     else if(path==='/api/pair/') data=paired?{status:'active',pairId:'one',partner:{id:'b',displayName:'伙伴'}}:{status:'none'};
     else if(path==='/api/tasks') data={tasks:tasks.filter(t=>t.task_date===parsed.searchParams.get('date'))};
     else if(path==='/api/status') {
-      if(method==='PUT') { if(body.customActivity!==undefined) statuses.mine.custom_activity=body.customActivity;for(const key of ['activity','focus','mood'])if(body[key])statuses.mine[key]=body[key]; }
+      if(method==='PUT') { if(body.customActivity!==undefined) statuses.mine.custom_activity=body.customActivity;for(const key of ['activity','focus','mood'])if(body[key])statuses.mine[key]=body[key]; if(Object.hasOwn(body,'durationMinutes')) statuses.mine.expires_at=body.durationMinutes?new Date(Date.now()+body.durationMinutes*60000).toISOString():null; }
       data=JSON.parse(JSON.stringify({...statuses,status:statuses.mine}));
     } else if(path==='/api/slack/stats')data={stats:{}};
     else if(path==='/api/reviews')data={ok:true};
@@ -38,7 +38,7 @@ function harness({ active=true, compact=true, native=true, token=true, config={}
   };
   w.eval(read('widget/ui-state.js')+';window.renderPreservingDrafts=renderPreservingDrafts;window.relativeStatusTime=relativeStatusTime;');
   w.eval(read('widget/app.js')+';window.__refresh=refreshAll;window.__validDate=validDate;');
-  return {dom,w,calls,patches,modes,setOffline(value){offline=value;}};
+  return {dom,w,calls,patches,modes,statuses,setOffline(value){offline=value;}};
 }
 function input(w,id,value){const el=w.document.getElementById(id);el.value=value;el.dispatchEvent(new w.Event('input',{bubbles:true}));return el;}
 function click(w,selector){const el=w.document.querySelector(selector);assert.ok(el,selector);el.click();}
@@ -55,6 +55,66 @@ test('default corner view has exactly two near-term rows, seven themes and no ed
     assert.equal(h.modes.at(-1),'compact');
     assert.doesNotMatch(w.document.body.textContent,/情侣|亲亲/);
   }finally{h.dom.window.close();}
+});
+
+test('right click and keyboard quickly share a timed status without expanding; recent choices come first',async()=>{
+  const h=harness({config:{recentActivities:['commute'],statusDurationMinutes:60,onboardingSeen:true}});const {w}=h;
+  try { await until(()=>w.document.querySelector('[data-person="mine"]'));
+    w.document.querySelector('[data-person="partner"]').dispatchEvent(new w.MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+    assert.equal(w.document.getElementById('quick-status').hidden,true);
+    const mine=w.document.querySelector('[data-person="mine"]');
+    mine.dispatchEvent(new w.MouseEvent('contextmenu',{bubbles:true,cancelable:true}));
+    assert.equal(w.document.getElementById('quick-status').hidden,false);
+    assert.equal(w.document.querySelector('[data-quick-activity]').dataset.quickActivity,'commute');
+    w.document.getElementById('quick-duration').value='30';click(w,'[data-quick-activity="study"]');
+    await until(()=>h.calls.some(c=>c.method==='PUT'&&c.path==='/api/status'));
+    const call=h.calls.find(c=>c.method==='PUT'&&c.path==='/api/status');
+    assert.deepEqual(call.body,{activity:'study',customActivity:'',focus:'focusing',durationMinutes:30});
+    await until(()=>w.document.getElementById('quick-status').hidden);
+    assert.equal(w.document.body.classList.contains('is-compact'),true);assert.equal(w.document.getElementById('current-activity'),null);
+    assert.ok(h.patches.some(p=>p.recentActivities?.[0]==='study'));
+    w.document.querySelector('[data-person="mine"]').focus();
+    w.document.dispatchEvent(new w.KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true}));
+    assert.equal(w.document.getElementById('quick-status').hidden,false);
+    w.document.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    assert.equal(w.document.getElementById('quick-status').hidden,true);assert.equal(w.document.activeElement.dataset.person,'mine');
+  } finally {h.dom.window.close();}
+});
+test('expiry stays expired during refresh; quick menu and drafts survive offline retry',async()=>{
+  const h=harness({config:{onboardingSeen:true}});const {w}=h;
+  try {await until(()=>w.document.querySelector('[data-person="mine"]'));
+    h.statuses.mine.expires_at=new Date(Date.now()-1000).toISOString();h.statuses.theirs.expires_at=new Date(Date.now()-1000).toISOString();h.statuses.theirs.focus='slacking';
+    await w.__refresh();
+    assert.match(w.document.querySelector('[data-person="mine"] .current-activity').textContent,/待更新/);
+    assert.equal(w.document.querySelector('[data-person="mine"] .person-focus').textContent,'');
+    click(w,'#btn-mode');await until(()=>w.document.getElementById('slack-catch'));
+    assert.equal(w.document.getElementById('slack-catch').disabled,true);
+    click(w,'#btn-mode');await until(()=>!w.document.getElementById('slack-catch'));
+    w.document.querySelector('[data-person="mine"]').dispatchEvent(new w.MouseEvent('contextmenu',{bubbles:true}));
+    h.setOffline(true);click(w,'[data-quick-activity="work"]');
+    await until(()=>!w.document.querySelector('[data-quick-activity="work"]').disabled);
+    assert.equal(w.document.getElementById('quick-status').hidden,false);
+    assert.equal(h.calls.some(c=>c.method==='PUT'&&c.path==='/api/status'),false);
+    h.setOffline(false);click(w,'[data-quick-activity="work"]');await until(()=>w.document.getElementById('quick-status').hidden);
+    assert.equal(h.statuses.mine.expires_at,null);
+  } finally {h.dom.window.close();}
+});
+test('onboarding appears once, can be replayed, and settings keep position and duration preferences',async()=>{
+  const h=harness();const {w}=h;
+  try {await until(()=>!w.document.getElementById('onboarding').hidden);
+    await until(()=>h.patches.some(p=>p.onboardingSeen===true));
+    click(w,'#welcome-dismiss');await w.__refresh();assert.equal(w.document.getElementById('onboarding').hidden,true);
+    click(w,'#btn-mode');await until(()=>w.document.getElementById('setting-duration'));click(w,'[data-panel="settings"]');
+    for(const id of ['setting-lock','setting-snap']) {
+      const control=w.document.getElementById(id);control.checked=id==='setting-lock';control.dispatchEvent(new w.Event('change',{bubbles:true}));await tick();
+    }
+    const duration=w.document.getElementById('setting-duration');duration.value='60';duration.dispatchEvent(new w.Event('change',{bubbles:true}));await tick();
+    assert.ok(w.document.body.classList.contains('position-locked'));assert.ok(h.patches.some(p=>p.positionLocked===true));assert.ok(h.patches.some(p=>p.snapToEdge===false));assert.ok(h.patches.some(p=>p.statusDurationMinutes===60));
+    assert.equal(h.calls.some(c=>c.method==='PUT'&&c.path==='/api/status'),false);
+    click(w,'#show-help');assert.equal(w.document.getElementById('onboarding').hidden,false);
+  } finally {h.dom.window.close();}
+  const returning=harness({config:{onboardingSeen:true}});
+  try {await until(()=>returning.w.document.querySelector('.glance-person'));assert.equal(returning.w.document.getElementById('onboarding').hidden,true);}finally{returning.dom.window.close();}
 });
 test('expand, edit, collapse and reopen preserve drafts and focus',async()=>{
   const h=harness();const{w}=h;

@@ -6,6 +6,7 @@ const wrap = require('../wrap');
 const { query, one } = require('../db');
 const { authMiddleware } = require('../auth');
 const { requirePair, touchActive } = require('../pair-util');
+const { statusExpired } = require('../status-util');
 
 router.use(authMiddleware);
 
@@ -22,7 +23,7 @@ router.post(
       return res.status(400).json({ error: '只能抓 TA' });
 
     const target = await one(`SELECT * FROM statuses WHERE user_id = $1`, [partnerId]);
-    if (!target || target.focus !== 'slacking')
+    if (!target || statusExpired(target) || target.focus !== 'slacking')
       return res.status(400).json({ error: 'TA 现在没有在摸鱼，抓不到～' });
 
     const last = await one(

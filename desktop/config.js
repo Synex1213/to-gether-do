@@ -16,6 +16,11 @@ function normalizeConfig(saved) {
     ...config,
     theme: THEMES.includes(config.theme) ? config.theme : 'green',
     compact: config.compact !== false,
+    snapToEdge: config.snapToEdge !== false,
+    positionLocked: config.positionLocked === true,
+    onboardingSeen: config.onboardingSeen === true,
+    statusDurationMinutes: [0, 30, 60, 120].includes(config.statusDurationMinutes) ? config.statusDurationMinutes : 0,
+    recentActivities: [...new Set(Array.isArray(config.recentActivities) ? config.recentActivities.filter(key => ['idle','study','work','eat','sleep','commute'].includes(key)) : [])].slice(0, 3),
     apiBase: !base || LEGACY_API_BASES.has(base) ? DEFAULT_API_BASE : base,
   };
 }
