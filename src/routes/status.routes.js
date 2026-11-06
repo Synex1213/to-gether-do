@@ -5,6 +5,7 @@ const wrap = require('../wrap');
 const { query, one } = require('../db');
 const { authMiddleware } = require('../auth');
 const { requirePair, touchActive, publicUser } = require('../pair-util');
+const { statusExpired } = require('../status-util');
 
 router.use(authMiddleware);
 
@@ -14,7 +15,7 @@ const ACTIVITY = ['idle', 'study', 'work', 'eat', 'sleep', 'commute'];
 
 function decorate(s) {
   const online = Date.now() - new Date(s.last_active_at).getTime() <= 120000;
-  return { ...s, online };
+  return { ...s, online, expired: statusExpired(s) };
 }
 
 // 查看两人状态
@@ -65,6 +66,9 @@ router.put(
     await requirePair(req.user.id);
     await touchActive(req.user.id);
     const body = req.body || {};
+    if (Object.hasOwn(body, 'durationMinutes') && ![0, 30, 60, 120].includes(body.durationMinutes)) {
+      return res.status(400).json({ error: '状态有效期请选择不限、30、60 或 120 分钟' });
+    }
 
     await query(`INSERT INTO statuses (user_id) VALUES ($1) ON CONFLICT DO NOTHING`, [
       req.user.id,
@@ -91,6 +95,12 @@ router.put(
       vals.push(c || null);
     }
 
+    // Old clients that publish a new activity also clear the previous deadline.
+    // Mood-only changes keep the activity deadline, even if it has expired.
+    if (FOCUS.includes(body.focus) || ACTIVITY.includes(body.activity) || typeof body.customActivity === 'string' || Object.hasOwn(body, 'durationMinutes')) {
+      sets.push(`expires_at = $${i++}`);
+      vals.push(body.durationMinutes ? new Date(Date.now() + body.durationMinutes * 60000).toISOString() : null);
+    }
     if (sets.length > 0) {
       sets.push(`updated_at = now()`);
       vals.push(req.user.id);

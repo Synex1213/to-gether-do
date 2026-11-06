@@ -98,3 +98,17 @@ test('local preview initializes the real pg-mem schema and can save/read a user'
   const user = await db.one('SELECT username FROM users WHERE id = $1', ['test-user']);
   assert.equal(user.username, 'test_user');
 });
+
+test('upgrades an existing status table without losing data and can run the migration twice', async () => {
+  // pg-mem flags unused CREATE definitions when IF NOT EXISTS skips a table.
+  // Disable that emulator-only AST coverage check; data/column assertions remain.
+  const mem = require('pg-mem').newDb({noAstCoverageCheck:true});
+  mem.public.none(`CREATE TABLE statuses (
+    user_id text PRIMARY KEY, mood text NOT NULL DEFAULT 'normal', focus text NOT NULL DEFAULT 'available',
+    activity text NOT NULL DEFAULT 'idle', custom_activity text, last_active_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+  ); INSERT INTO statuses (user_id,custom_activity) VALUES ('existing','保留旧状态')`);
+  const db = loadDb({}, id => { assert.equal(id,'pg-mem'); return {newDb:()=>mem}; });
+  await db.initDb();await db.initDb();
+  const row = await db.one('SELECT custom_activity, expires_at FROM statuses WHERE user_id = $1',['existing']);
+  assert.equal(row.custom_activity,'保留旧状态');assert.equal(row.expires_at,null);
+});

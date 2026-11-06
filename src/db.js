@@ -121,9 +121,11 @@ const SCHEMA_SQL = [
      focus text NOT NULL DEFAULT 'available',
      activity text NOT NULL DEFAULT 'idle',
      custom_activity text,
+     expires_at timestamptz,
      last_active_at timestamptz NOT NULL DEFAULT now(),
      updated_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `ALTER TABLE statuses ADD COLUMN IF NOT EXISTS expires_at timestamptz`,
   `CREATE TABLE IF NOT EXISTS reviews (
      id text PRIMARY KEY,
      task_id text NOT NULL,

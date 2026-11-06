@@ -52,7 +52,7 @@ router.post('/join', wrap(async (req, res) => {
     if (!joined) fail('配对码已被使用', 409);
     await tx.query("UPDATE pairs SET status = 'cancelled' WHERE status = 'pending' AND (user_a = $1 OR user_a = $2)", [req.user.id, invitation.user_a]);
     // A new partner only sees status shared after this new relationship begins.
-    await tx.query("UPDATE statuses SET activity = 'idle', focus = 'available', mood = 'normal', custom_activity = NULL, updated_at = now() WHERE user_id = $1 OR user_id = $2", [req.user.id, invitation.user_a]);
+    await tx.query("UPDATE statuses SET activity = 'idle', focus = 'available', mood = 'normal', custom_activity = NULL, expires_at = NULL, updated_at = now() WHERE user_id = $1 OR user_id = $2", [req.user.id, invitation.user_a]);
   });
   const partner = await publicUser(invitation.user_a);
   res.json({ status: 'active', partner: { id: partner.id, username: partner.username, displayName: partner.display_name } });
