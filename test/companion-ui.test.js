@@ -205,6 +205,6 @@ test('browser shares the desktop renderer and compact preferences, without nativ
     click(w,'.theme-dot[data-theme="blue"]');await until(()=>JSON.parse(w.localStorage.getItem('companion_config')).theme==='blue');
     click(w,'#btn-mode');await until(()=>w.document.getElementById('current-activity'));
     assert.equal(JSON.parse(w.localStorage.getItem('companion_config')).compact,false);
-    const shell=read('public/index.html');assert.match(shell,/\/widget\/app.js/);assert.match(shell,/\/widget\/styles.css/);
+    const shell=read('public/app/index.html');assert.match(shell,/\/widget\/app.js/);assert.match(shell,/\/widget\/styles.css/);
   }finally{h.dom.window.close();}
 });

@@ -1,35 +1,66 @@
-<!DOCTYPE html>
-<html lang="zh-CN" data-theme="green">
+<!doctype html>
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#d4e1d8">
-  <title>伙伴打卡</title>
-  <link rel="icon" href="/widget/icon.png" type="image/png">
-  <link rel="stylesheet" href="/widget/styles.css">
-  <link rel="manifest" href="/manifest.webmanifest">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f7f2">
+  <meta name="description" content="伙伴打卡，一个放在电脑桌面角落的双人近况小窗。各自做事，偶尔看一眼。体验产品演示，下载 Windows 桌面版。">
+  <title>伙伴打卡 — 各自忙碌，也在彼此身边</title>
+  <link rel="icon" href="/icon.png" type="image/png">
+  <link rel="stylesheet" href="/website.css">
+  <script src="/website.js" defer></script>
 </head>
 <body>
-  <div class="app">
-    <header class="titlebar">
-      <div class="title-left"><img src="/widget/icon.png" class="title-icon" alt=""><span class="title-text">伙伴打卡</span></div>
-      <div class="title-actions">
-        <button class="win-btn pin-btn" id="btn-pin" title="取消置顶" aria-label="切换置顶" aria-pressed="true">置顶</button>
-        <button class="win-btn mode-btn" id="btn-mode" title="展开详情" aria-expanded="false">展开</button>
-        <button class="win-btn native-only" id="btn-min" title="最小化" aria-label="最小化">−</button>
-        <button class="win-btn close native-only" id="btn-close" title="隐藏到托盘" aria-label="隐藏到托盘">×</button>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header wrap">
+    <a class="brand" href="#"><img src="/icon.png" alt="" width="40" height="40"><span>伙伴打卡<small>TOGETHER, IN A LITTLE WAY.</small></span></a>
+    <nav aria-label="主导航"><a href="#demo">产品演示</a><a href="#start">如何开始</a><a href="#questions">常见问题</a></nav>
+    <a class="button button-small" href="/download/windows">下载 Windows 版 <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> 留一点桌面，给另一个人</p>
+        <h1 id="hero-title">各自忙碌，<br>也在<span class="marked">彼此身边。</span></h1>
+        <p class="hero-description">把彼此的近况，放在桌面的一小角。<br>无需反复打开聊天窗口，想起来时看一眼就好。</p>
+        <div class="hero-actions"><a class="button" href="/download/windows"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 20 20" fill="currentColor"><path d="M1 3l7-1v7H1zm9-1.3L19 0v9h-9zM1 11h7v7l-7-1zm9 0h9v9l-9-1.7z"/></svg>下载 Windows 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="#demo">先体验一下 <span aria-hidden="true">→</span></a></div>
+        <p class="release-meta">Windows 桌面版 · <span data-release-version>v2.1.0</span> · <span data-release-size>约 80 MB</span></p>
+        <div class="people-note"><span class="little-avatar">林</span><span class="little-avatar second">然</span><p>朋友、学习搭子、同事，<br><strong>或任何想一起好好过日子的人。</strong></p></div>
       </div>
-    </header>
-    <div class="content" id="content"></div>
-    <footer class="widget-footer">
-      <label class="calendar-wrap" title="用日历回看计划，双方状态仍是最新分享"><span class="sr-only">选择计划日期</span><input type="date" id="plan-date" aria-label="选择计划日期"></label>
-      <div class="theme-switcher" id="themes" role="group" aria-label="主题颜色"></div>
-    </footer>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <aside class="small-overlay" id="quick-status" role="dialog" aria-label="快速改状态" hidden></aside>
-    <aside class="small-overlay" id="onboarding" role="note" hidden></aside>
-  </div>
-  <script src="/widget/ui-state.js"></script>
-  <script src="/widget/app.js"></script>
+      <div class="hero-visual">
+        <div class="desktop-scene hero-scene" aria-label="工作桌面中的伙伴小窗示意">
+          <div class="desktop-bar"><span>我的桌面</span><span aria-hidden="true">◒ &nbsp; ▰ &nbsp; 10:24</span></div>
+          <div class="desk-note"><div class="note-top"><span class="window-dots" aria-hidden="true">● ● ●</span><span>今天，慢慢来</span></div><div class="note-body"><span class="note-label">TODAY'S LITTLE PLAN</span><h3>留一点时间，<br>做想做的事。</h3><p><i class="paper-check done" aria-hidden="true"></i>读几页书</p><p><i class="paper-check" aria-hidden="true"></i>把手上的事做完</p><p><i class="paper-check" aria-hidden="true"></i>出门走一走</p><span class="note-scribble">按自己的节奏就好。</span></div></div>
+          <div class="desktop-widget" data-widget="hero"></div>
+          <span class="scene-caption">陪伴，占用很小。</span>
+        </div>
+        <div class="visual-caption"><span class="caption-line" aria-hidden="true"></span><span>你的桌面照常忙碌，伙伴就在角落。</span><span class="demo-tag">示例画面</span></div>
+      </div>
+    </section>
+    <div class="essentials wrap" aria-label="产品特点"><span><i aria-hidden="true">↔</i> 一对一的小空间</span><span><i aria-hidden="true">⌑</i> 260 × 244 角落小窗</span><span><i aria-hidden="true">⌖</i> 置顶，也能安静收起</span><span><i aria-hidden="true">◌</i> 七种低饱和配色</span></div>
+    <section class="product-section section wrap" id="demo" aria-labelledby="demo-title">
+      <div class="section-heading"><div><p class="eyebrow">A LITTLE WINDOW INTO YOUR DAY</p><h2 id="demo-title">不用一直聊天，<br>也知道你在做什么。</h2></div><p>试着点点小窗。这里的所有内容都是示例，<br>无需登录，也不会发送或同步任何真实状态。</p></div>
+      <div class="playground">
+        <div class="feature-guide" role="tablist" aria-label="选择演示功能" aria-orientation="vertical">
+          <button role="tab" aria-selected="true" aria-controls="demo-panel" id="feature-status" data-feature="status"><span class="feature-number">01</span><span><strong>看见彼此的此刻</strong><small>学习、工作、休息，轻轻分享一下。</small></span><span class="feature-arrow" aria-hidden="true">↗</span></button>
+          <button role="tab" aria-selected="false" aria-controls="demo-panel" id="feature-tasks" data-feature="tasks" tabindex="-1"><span class="feature-number">02</span><span><strong>各有计划，一起往前</strong><small>做自己的事，也为伙伴的小进展加油。</small></span><span class="feature-arrow" aria-hidden="true">↗</span></button>
+          <button role="tab" aria-selected="false" aria-controls="demo-panel" id="feature-play" data-feature="play" tabindex="-1"><span class="feature-number">03</span><span><strong>偶尔摸个鱼，也很好</strong><small>留一点轻松，不把陪伴变成监督。</small></span><span class="feature-arrow" aria-hidden="true">↗</span></button>
+          <button role="tab" aria-selected="false" aria-controls="demo-panel" id="feature-settings" data-feature="settings" tabindex="-1"><span class="feature-number">04</span><span><strong>让小窗，适合你</strong><small>换个颜色，选好状态有效期。</small></span><span class="feature-arrow" aria-hidden="true">↗</span></button>
+        </div>
+        <div class="demo-stage" id="demo-panel" role="tabpanel" aria-labelledby="feature-status">
+          <div class="demo-stage-top"><span><span class="live-dot" aria-hidden="true"></span> 可交互演示</span><button class="reset-button" id="demo-reset">重置演示 <span aria-hidden="true">↻</span></button></div>
+          <div class="demo-stage-body"><div class="demo-side-note"><span class="side-note-number">01 / 04</span><h3 id="demo-note-title">各自专注，<br>也有陪伴。</h3><p id="demo-note-copy">分享手上的事，伙伴的小窗里就会看见。也可以右键自己的状态，快速切换。</p><span class="demo-side-arrow" aria-hidden="true">↘</span></div><div data-widget="demo"></div></div>
+          <p class="demo-footnote">网页用于体验操作。置顶、吸附和托盘功能，请在桌面软件中使用。</p>
+        </div>
+      </div>
+      <div class="palette-line"><span>同一个小空间，七种心情。</span><div id="theme-palette" role="group" aria-label="演示主题颜色"></div><span class="palette-current" id="palette-current">莫兰迪绿</span></div>
+    </section>
+    <section class="quiet-section section"><div class="wrap quiet-layout"><div><p class="eyebrow">CLOSE ENOUGH. QUIET ENOUGH.</p><h2>陪伴的分寸，<br>刚刚好。</h2><p class="quiet-description">我们想留下的，是“有人和我一起”的感觉。<br>各自的节奏，也值得好好保留。</p></div><div class="quiet-points"><article><span aria-hidden="true">01</span><div><h3>想起来时，才看一眼</h3><p>两行近况常驻桌面，更多操作按需展开。<br>让注意力，回到正在做的事。</p></div></article><article><span aria-hidden="true">02</span><div><h3>过期的状态，不假装实时</h3><p>可选状态有效期，到期显示“待更新”。<br>最近使用应用，也不等于正在做某件事。</p></div></article><article><span aria-hidden="true">03</span><div><h3>一次，只与一位伙伴共享</h3><p>配对后共享近况和计划，也可以随时解绑。<br>旧关系的计划，不会展示给新伙伴。</p></div></article></div></div></section>
+    <section class="section wrap" id="start" aria-labelledby="start-title"><div class="section-heading"><div><p class="eyebrow">THREE SMALL STEPS</p><h2 id="start-title">找一个人，<br>把小窗放上桌面。</h2></div><a class="text-link" href="/download/windows">从下载开始 <span aria-hidden="true">↗</span></a></div><ol class="start-steps"><li><span class="step-number">01</span><div class="step-art install-art" aria-hidden="true">↓<span>伙伴打卡.exe</span></div><h3>各自安装</h3><p>下载 Windows 桌面版。你和伙伴，<br>各自登录自己的账号。</p></li><li><span class="step-number">02</span><div class="step-art pair-art" aria-hidden="true"><span>林</span><i>· · ·</i><span>然</span></div><h3>用配对码相遇</h3><p>一人生成配对码，另一人输入。<br>两个人的小空间，就准备好了。</p></li><li><span class="step-number">03</span><div class="step-art corner-art" aria-hidden="true"><span><i></i><i></i></span></div><h3>留在你喜欢的角落</h3><p>选个颜色，分享此刻在做的事。<br>各自忙碌，偶尔看一眼。</p></li></ol></section>
+    <section class="section wrap faq-layout" id="questions" aria-labelledby="faq-title"><div><p class="eyebrow">A FEW LITTLE ANSWERS</p><h2 id="faq-title">你可能<br>还想知道。</h2><p class="faq-intro">关于这个小小的伙伴空间。</p></div><div class="faq-list"><details><summary>一定要是情侣才能用吗？<span aria-hidden="true">+</span></summary><p>不需要。朋友、学习搭子、同事，或情侣，都可以成为伙伴。产品只约定一对一共享，不限定你们的关系。</p></details><details><summary>网页和桌面软件有什么区别？<span aria-hidden="true">+</span></summary><p>这个网页负责产品介绍、示例演示和下载，不读取你的账号或真实状态。实际配对、打卡和计划共享在桌面软件中进行；系统置顶、边缘吸附和托盘也是桌面版功能。</p></details><details><summary>点关闭后，软件就退出了吗？<span aria-hidden="true">+</span></summary><p>小窗会隐藏到系统托盘，需要时可以重新打开。要完全退出，请在托盘菜单中选择“退出”。</p></details><details><summary>状态会一直显示下去吗？<span aria-hidden="true">+</span></summary><p>可以选择不限、30 分钟、1 小时或 2 小时。设置了有效期的状态，到期后显示“待更新”和上次事项。较久未更新的状态也会标明“上次”，避免被当作当前近况。</p></details><details><summary>可以更换伙伴吗？<span aria-hidden="true">+</span></summary><p>可以。在软件设置中解除当前绑定后，即可重新配对。原关系的任务与回应不会展示给新伙伴。</p></details><details><summary>支持哪些设备？下载在哪里？<span aria-hidden="true">+</span></summary><p>目前提供 Windows 桌面安装包。页面上的下载按钮会前往 GitHub 官方项目的安装文件；也可以<a href="https://github.com/Synex1213/to-gether-do/releases/latest" target="_blank" rel="noopener noreferrer">从版本发布页下载</a>。网页可在手机上查看演示，手机不能安装 Windows 程序。</p></details></div></section>
+    <section class="download-section wrap" id="download"><div><p class="eyebrow">A LITTLE SPACE, TOGETHER.</p><h2>桌面留一小角，<br>就够了。</h2><p>给彼此一点陪伴，也给自己留出专注的空间。</p></div><div class="download-action"><a class="button button-light" href="/download/windows">下载 Windows 版 <span aria-hidden="true">↓</span></a><p><span data-release-version>v2.1.0</span> · <span data-release-size>约 80 MB</span></p><a href="https://github.com/Synex1213/to-gether-do/releases/latest" target="_blank" rel="noopener noreferrer">查看版本说明 ↗</a></div></section>
+  </main>
+  <footer class="site-footer wrap"><a class="brand" href="#"><img src="/icon.png" alt="" width="34" height="34"><span>伙伴打卡</span></a><p>各自做事，偶尔看一眼。</p><a href="https://github.com/Synex1213/to-gether-do" target="_blank" rel="noopener noreferrer">在 GitHub 看看 ↗</a><span>© <span id="year">2026</span> 伙伴打卡</span></footer>
+  <div class="demo-toast" id="demo-toast" role="status" aria-live="polite"></div>
 </body>
 </html>

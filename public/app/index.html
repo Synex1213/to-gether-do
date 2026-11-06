@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="green">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#d4e1d8">
+  <title>伙伴打卡</title>
+  <link rel="icon" href="/widget/icon.png" type="image/png">
+  <link rel="stylesheet" href="/widget/styles.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="title-left"><img src="/widget/icon.png" class="title-icon" alt=""><span class="title-text">伙伴打卡</span></div>
+      <div class="title-actions">
+        <button class="win-btn pin-btn" id="btn-pin" title="取消置顶" aria-label="切换置顶" aria-pressed="true">置顶</button>
+        <button class="win-btn mode-btn" id="btn-mode" title="展开详情" aria-expanded="false">展开</button>
+        <button class="win-btn native-only" id="btn-min" title="最小化" aria-label="最小化">−</button>
+        <button class="win-btn close native-only" id="btn-close" title="隐藏到托盘" aria-label="隐藏到托盘">×</button>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+    <footer class="widget-footer">
+      <label class="calendar-wrap" title="用日历回看计划，双方状态仍是最新分享"><span class="sr-only">选择计划日期</span><input type="date" id="plan-date" aria-label="选择计划日期"></label>
+      <div class="theme-switcher" id="themes" role="group" aria-label="主题颜色"></div>
+    </footer>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <aside class="small-overlay" id="quick-status" role="dialog" aria-label="快速改状态" hidden></aside>
+    <aside class="small-overlay" id="onboarding" role="note" hidden></aside>
+  </div>
+  <script src="/widget/ui-state.js"></script>
+  <script src="/widget/app.js"></script>
+</body>
+</html>
