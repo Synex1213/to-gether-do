@@ -1,6 +1,6 @@
 {
   "name": "couple-connect",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "伙伴打卡桌面悬浮小窗",
   "main": "main.js",

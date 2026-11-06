@@ -1,5 +1,6 @@
 'use strict';
-const SIZES = Object.freeze({ compact: { width: 320, height: 244 }, expanded: { width: 340, height: 560 }, auth: { width: 340, height: 460 } });
+// 260 px fits the existing calendar, seven theme dots and titlebar controls.
+const SIZES = Object.freeze({ compact: { width: 260, height: 244 }, expanded: { width: 340, height: 560 }, auth: { width: 340, height: 460 } });
 function windowBounds(mode, workArea, previous) {
   if (!previous || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(previous[key])) || previous.width <= 0 || previous.height <= 0) previous = null;
   const size = SIZES[mode] || SIZES.compact;
