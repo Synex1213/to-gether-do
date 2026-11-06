@@ -9,3 +9,5 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}.reveal.pending{opacity:1;transform:none}}
 
 @media(max-width:560px){.desktop-widget{right:8px;max-width:calc(100% - 16px)}.desktop-widget .product-widget{max-width:100%}.widget-footer input{width:100px}}
+
+.demo-download-link{display:inline-block;margin-left:12px;font-size:11px;color:var(--green);font-weight:600;text-underline-offset:4px}.demo-download-link:hover{text-decoration:underline}
