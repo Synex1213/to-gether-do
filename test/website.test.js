@@ -42,10 +42,10 @@ test('all seven demo themes update both windows; feature tabs support keyboard a
 test('status, tasks, replies and catch interactions stay local and reset to the original example',()=>{
   const h=harness();const {w}=h;
   try{
-    let input=w.document.querySelector('[name="activity"]');input.value='<img src=x onerror=alert(1)>';input.dispatchEvent(new w.Event('input',{bubbles:true}));w.document.querySelector('[data-form="status"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+    let input=w.document.querySelector('[name="activity"]');input.value='<img src=x onerror=alert(1)>';input.dispatchEvent(new w.Event('input',{bubbles:true}));h.click('[data-form="status"] button');
     assert.equal(w.document.querySelector('[data-person="mine"] .demo-person-activity img'),null);
     assert.match(w.document.querySelector('[data-person="mine"] .demo-person-activity').textContent,/<img/);
-    h.click('#feature-tasks');input=w.document.querySelector('[name="task"]');input.value='试着整理笔记';input.dispatchEvent(new w.Event('input',{bubbles:true}));w.document.querySelector('[data-form="task"]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+    h.click('#feature-tasks');input=w.document.querySelector('[name="task"]');input.value='试着整理笔记';input.dispatchEvent(new w.Event('input',{bubbles:true}));h.click('[data-form="task"] button');assert.equal(w.document.querySelectorAll('[data-task]').length,3);
     assert.match(w.document.querySelector('[data-widget="demo"]').textContent,/试着整理笔记/);
     h.click('[data-task="3"]');assert.ok(w.document.querySelector('[data-task="3"]').closest('.demo-task').classList.contains('done'));
     h.click('[data-action="reply"]');assert.match(w.document.querySelector('.demo-reply').textContent,/一起加油/);
