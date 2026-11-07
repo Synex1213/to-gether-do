@@ -17,9 +17,15 @@ async function initPool() {
     const { Pool } = require('pg');
     pool = new Pool({
       connectionString: databaseUrl,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      statement_timeout: 8000,
+      max: 5,
       // Render 同区域 Internal URL 可直接连接；PGSSL=true 可显式启用 TLS。
       ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : undefined,
     });
+    // pg emits background errors when a managed database is suspended.
+    pool.on?.('error', error => console.error('数据库空闲连接已断开', { code: error.code || 'DATABASE_UNAVAILABLE' }));
     return;
   }
 
@@ -151,7 +157,7 @@ const SCHEMA_SQL = [
 ];
 
 async function initDb() {
-  await initPool();
+  if (!pool) await initPool();
   for (const sql of SCHEMA_SQL) {
     await query(sql);
   }
