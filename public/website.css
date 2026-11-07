@@ -27,10 +27,10 @@
 .feature-guide button { min-height:96px; }
 .feature-guide small { margin-top:6px; }
 .service-notice { max-width:410px; border-left:2px solid #a18c5c; padding:7px 10px; background:#ece9dc; color:#655b3c; font-size:12px; line-height:1.7; margin:18px 0 0; border-radius:0 5px 5px 0; }
-.product-widget { --w-accent:#526f60; --w-muted:#647269; }
-.product-widget[data-theme=blue] { --w-accent:#526f86; --w-muted:#5e707d; }
+.product-widget { --w-accent:#526f60; --w-muted:#617066; }
+.product-widget[data-theme=blue] { --w-accent:#526f86; --w-muted:#5c6e7b; }
 .product-widget[data-theme=purple] { --w-accent:#746283; --w-muted:#70667b; }
-.product-widget[data-theme=yellow] { --w-accent:#796534; --w-muted:#776c55; }
+.product-widget[data-theme=yellow] { --w-accent:#796534; --w-muted:#756a53; }
 .product-widget[data-theme=pink] { --w-accent:#8b6072; --w-muted:#7a6570; }
 .product-widget[data-theme=black] { --w-accent:#a6b1bf; --w-muted:#a6b0bd; }
 .product-widget[data-theme=white] { --w-accent:#686868; --w-muted:#686868; }

@@ -215,3 +215,8 @@ test('offline compact view preserves two rows without adding a scrolling notice'
   const h=harness({config:{onboardingSeen:true}});
   try {await until(()=>h.w.document.querySelectorAll('.glance-person').length===2);h.setOffline(true);await h.w.__refresh();assert.equal(h.w.document.querySelectorAll('.glance-person').length,2);assert.equal(h.w.document.querySelector('.sync-warning'),null);assert.equal(h.w.document.getElementById('connection-state').hidden,false);assert.equal(h.w.document.querySelector('.online-dot.online'),null);h.setOffline(false);await h.w.__refresh();assert.equal(h.w.document.getElementById('connection-state').hidden,true);}finally{h.dom.window.close();}
 });
+
+test('timed status expires locally while network polling is paused',async()=>{
+  const h=harness({config:{onboardingSeen:true}});
+  try {await until(()=>h.w.document.querySelector('.glance-person'));h.statuses.mine.expires_at=new Date(Date.now()+90).toISOString();await h.w.__refresh();h.setOffline(true);h.w.dispatchEvent(new h.w.Event('offline'));await new Promise(resolve=>setTimeout(resolve,180));assert.match(h.w.document.querySelector('[data-person="mine"]').textContent,/待更新/);assert.equal(h.w.document.querySelectorAll('.glance-person').length,2);}finally{h.dom.window.close();}
+});

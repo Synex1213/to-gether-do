@@ -14,6 +14,8 @@ const DURATIONS = [[0, '不限时间'], [30, '30 分钟'], [60, '1 小时'], [12
 let welcomeShown = false;
 let statusSaving = false;
 let authSaving = false;
+let taskSaving = false;
+let statusExpiryTimer;
 let refreshTimer;
 let failures = 0;
 let nextRetryAfter = 0;
@@ -163,6 +165,7 @@ async function openPanel(panel) {
   render();
 }
 function render() {
+  clearTimeout(statusExpiryTimer);
   if (state.token && !state.me && state.config?.apiBase) {
     state.phase = 'loading';
     applyChrome();
@@ -240,6 +243,9 @@ function renderPair() {
 
 function renderMain() {
   renderPreservingDrafts(content, renderMainContent);
+  // Expiry remains accurate while offline; no network request is needed.
+  const deadlines = [state.myStatus, state.partnerStatus].flatMap(st => [Date.parse(st?.expires_at), Date.parse(st?.updated_at) + 7200000]).filter(time => Number.isFinite(time) && time > Date.now());
+  if (deadlines.length) statusExpiryTimer = setTimeout(() => render(), Math.min(...deadlines) - Date.now() + 30);
   if (!welcomeShown && state.config.onboardingSeen !== true) {
     welcomeShown = true;
     showWelcome();
@@ -569,7 +575,7 @@ content.addEventListener('input', e => {
 });
 
 content.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
+  if (e.key !== 'Enter' || e.isComposing) return;
   if (e.target.id === 'task-input') addTask();
   if (e.target.id === 'current-activity') document.getElementById('activity-save')?.click();
   if (e.target.id === 'auth-username' || e.target.id === 'auth-password' || e.target.id === 'auth-display') {
@@ -580,14 +586,18 @@ content.addEventListener('keydown', (e) => {
 
 async function addTask() {
   const input = document.getElementById('task-input');
-  if (!input || state.date !== today()) return;
+  if (!input || taskSaving || state.date !== today()) return;
   const text = input.value.trim();
   if (!text) return;
+  taskSaving = true;
+  const button = document.getElementById('task-add');
+  if (button) button.disabled = true;
   try {
     await api('/api/tasks', { method: 'POST', body: JSON.stringify({ content: text, date: state.date }) });
-    input.value = ''; state.taskDraft = '';
+    if (state.taskDraft.trim() === text) { input.value = ''; state.taskDraft = ''; }
     await refreshAll();
   } catch (err) { toast(err.message); }
+  finally { taskSaving = false; if(button) button.disabled = false; }
 }
 
 // 标题栏与角落控件
@@ -629,7 +639,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeQuickStatus(true); document.getElementById('onboarding').hidden = true;
   }
-  if (e.key === 'Enter' && ['auth-username','auth-password','auth-display'].includes(e.target.id)) { e.preventDefault(); document.getElementById('auth-submit')?.click(); }
   if ((e.key === 'ContextMenu' || e.key === 'F10' && e.shiftKey) && document.activeElement?.matches('[data-person="mine"]')) {
     e.preventDefault(); openQuickStatus();
   }

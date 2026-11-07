@@ -1,10 +1,10 @@
-:root, [data-theme="green"] { --accent:#526f60; --accent-ink:#fff; --header:#d4e1d8; --bg:#f8faf8; --surface:#edf2ee; --card:#fff; --ink:#31463b; --muted:#647269; --line:#dbe4dd; --hover:#e2eae4; --dot:#88a294; color-scheme:light; }
-[data-theme="blue"] { --accent:#526f86; --header:#d5e0e8; --bg:#f7f9fb; --surface:#eaf0f4; --ink:#304453; --muted:#5e707d; --line:#d9e2e9; --hover:#e0e9f0; --dot:#8da6b8; }
+:root, [data-theme="green"] { --accent:#526f60; --accent-ink:#fff; --header:#d4e1d8; --bg:#f8faf8; --surface:#edf2ee; --card:#fff; --ink:#31463b; --muted:#617066; --line:#dbe4dd; --hover:#e2eae4; --dot:#88a294; color-scheme:light; }
+[data-theme="blue"] { --accent:#526f86; --header:#d5e0e8; --bg:#f7f9fb; --surface:#eaf0f4; --ink:#304453; --muted:#5c6e7b; --line:#d9e2e9; --hover:#e0e9f0; --dot:#8da6b8; }
 [data-theme="purple"] { --accent:#746283; --header:#e1dce7; --bg:#faf8fb; --surface:#f0ecf3; --ink:#463d50; --muted:#70667b; --line:#e1dce7; --hover:#e9e3ee; --dot:#aa9bb8; }
-[data-theme="yellow"] { --accent:#796534; --header:#e7dfc8; --bg:#fbfaf6; --surface:#f3efe3; --ink:#514832; --muted:#776c55; --line:#e5dfcd; --hover:#eae4d2; --dot:#c2b085; }
+[data-theme="yellow"] { --accent:#796534; --header:#e7dfc8; --bg:#fbfaf6; --surface:#f3efe3; --ink:#514832; --muted:#756a53; --line:#e5dfcd; --hover:#eae4d2; --dot:#c2b085; }
 [data-theme="pink"] { --accent:#8b6072; --header:#e8d7de; --bg:#fcf8fa; --surface:#f3eaf0; --ink:#513e47; --muted:#7a6570; --line:#e8dce2; --hover:#eadce3; --dot:#c19daa; }
 [data-theme="black"] { --accent:#a6b1bf; --accent-ink:#1a2028; --header:#292f38; --bg:#1c2026; --surface:#252b33; --card:#2b323b; --ink:#edf0f4; --muted:#a6b0bd; --line:#3b4552; --hover:#35404d; --dot:#29313e; color-scheme:dark; }
-[data-theme="white"] { --accent:#686868; --header:#ededed; --bg:#fafafa; --surface:#f0f0f0; --ink:#252525; --muted:#777; --line:#ddd; --hover:#e6e6e6; --dot:#fff; }
+[data-theme="white"] { --accent:#686868; --header:#ededed; --bg:#fafafa; --surface:#f0f0f0; --ink:#252525; --muted:#686868; --line:#ddd; --hover:#e6e6e6; --dot:#fff; }
 * { box-sizing:border-box; }
 [hidden] { display:none !important; }
 html, body { margin:0; width:100%; height:100%; background:transparent; font:12px/1.45 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); }
