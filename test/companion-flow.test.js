@@ -29,7 +29,7 @@ test('pair lifecycle, stale invitations, isolation and concurrent joins', async 
     assert.match(landing, /\/website.js/);assert.match(landing, /\/download\/windows/);assert.doesNotMatch(landing, /auth-password|\/widget\/app.js/);
     const workspace = await fetch(base.replace('/api','/app/'));
     assert.match(await workspace.text(), /\/widget\/app.js/);
-    const release = await fetch(base + '/release');assert.equal((await release.json()).version,'2.1.0');
+    const release = await fetch(base + '/release');assert.equal((await release.json()).version,FALLBACK.version);
     const download = await fetch(base.replace('/api','/download/windows'),{redirect:'manual'});
     assert.equal(download.status,302);assert.equal(download.headers.get('location'),FALLBACK.url);
     const renderer = await fetch(base.replace('/api', '/widget/app.js'));

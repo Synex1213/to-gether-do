@@ -83,3 +83,7 @@ test('service interruption is disclosed without disabling local demos or downloa
   const h=harness({sync:'unavailable'});
   try {await tick();const notice=h.w.document.getElementById('service-notice');assert.equal(notice.hidden,false);assert.match(notice.textContent,/同步服务暂不可用/);h.click('#feature-tasks');assert.ok(h.w.document.querySelector('[data-form="task"]'));assert.ok(h.w.document.querySelector('a[href="/download/windows"]'));assert.equal(h.w.localStorage.length,0);}finally{h.dom.window.close();}
 });
+
+test('stale GitHub metadata cannot downgrade the verified download fallback',async()=>{
+ const oldVersion='2.1.0';const resolver=createReleaseResolver(async()=>({ok:true,json:async()=>({tag_name:'v'+oldVersion,assets:[{name:`couple-connect-setup-${oldVersion}.exe`,size:79955322,browser_download_url:`https://github.com/Synex1213/to-gether-do/releases/download/v${oldVersion}/couple-connect-setup-${oldVersion}.exe`}]})}));assert.deepEqual(await resolver(),FALLBACK);
+});

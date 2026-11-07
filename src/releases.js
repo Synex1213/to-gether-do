@@ -1,5 +1,5 @@
 'use strict';
-const FALLBACK = Object.freeze({ version:'2.1.0', size:79955322, url:'https://github.com/Synex1213/to-gether-do/releases/download/v2.1.0/couple-connect-setup-2.1.0.exe', page:'https://github.com/Synex1213/to-gether-do/releases/latest' });
+const FALLBACK = Object.freeze({ version:'2.2.0', size:122894298, url:'https://github.com/Synex1213/to-gether-do/releases/download/v2.2.0/couple-connect-setup-2.2.0.exe', page:'https://github.com/Synex1213/to-gether-do/releases/latest' });
 function createReleaseResolver(fetchRelease = global.fetch, now = Date.now) {
   let cached, validUntil = 0, pending;
   return async function latestRelease() {
@@ -11,6 +11,10 @@ function createReleaseResolver(fetchRelease = global.fetch, now = Date.now) {
         if (!response.ok) throw new Error('Release unavailable');
         const release = await response.json();
         const version = String(release.tag_name || '').replace(/^v/,'');
+        const parts = version.split('.').map(Number), floor = FALLBACK.version.split('.').map(Number);
+        let older = false;
+        for(let i=0;i<3;i++) { if(parts[i] < floor[i]) { older = true; break; } if(parts[i] > floor[i]) break; }
+        if(older) throw new Error('Stale release');
         const asset = release.assets?.find(a => a.name === `couple-connect-setup-${version}.exe`);
         const expected = `https://github.com/Synex1213/to-gether-do/releases/download/v${version}/couple-connect-setup-${version}.exe`;
         if (release.draft || release.prerelease || !/^\d+\.\d+\.\d+$/.test(version) || asset?.browser_download_url !== expected || !(asset.size > 0)) throw new Error('Invalid release');
