@@ -61,3 +61,5 @@
   .download-action>a:last-child { font-size:12px; }
   .download-section>div>p:not(.eyebrow) { font-size:13px; }
 }
+
+.demo-input::placeholder { color:var(--w-muted); opacity:1; }
