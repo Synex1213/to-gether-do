@@ -35,6 +35,10 @@ test('pair lifecycle, stale invitations, isolation and concurrent joins', async 
     const renderer = await fetch(base.replace('/api', '/widget/app.js'));
     assert.match(renderer.headers.get('content-type'), /javascript/);
     assert.match(await renderer.text(), /THEME_OPTIONS/);
+    for (const payload of [{username:42,password:'testing-123'}, {username:'valid',password:{}}, {username:'valid',password:'x'.repeat(73)}, {username:'valid',password:'testing-123',displayName:[]}]) {
+      assert.equal((await request('/auth/register',null,'POST',payload)).status,400);
+    }
+    assert.equal((await request('/auth/login',null,'POST',{username:[],password:{}})).status,400);
     const a = await register('alice'), b = await register('bob'), c = await register('carol'), d = await register('dave');
     const aCode = (await request('/pair/code', a, 'POST')).data;
     const bCode = (await request('/pair/code', b, 'POST')).data;

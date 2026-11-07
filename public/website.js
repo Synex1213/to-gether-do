@@ -36,7 +36,7 @@
   function renderWidget(id) {
     const hero=id==='hero';const compact=hero||!state.expanded;
     const panel=state.feature==='tasks'?taskPanel():state.feature==='play'?playPanel():state.feature==='settings'?settingsPanel():statusPanel();
-    rootFor(id).innerHTML=`<div class="product-widget ${compact?'compact':''}" data-theme="${state.theme}"><div class="widget-title"><span class="widget-brand"><img src="/icon.png" alt="">伙伴打卡</span><div class="widget-buttons"><button type="button" data-action="pin" aria-label="演示切换置顶" aria-pressed="${state.pinned}">置顶</button><button type="button" data-action="expand" aria-expanded="${!compact}" title="${hero?'在下方展开产品演示':'展开或收起演示小窗'}">${compact?'展开':'收起'}</button></div></div><div class="widget-content">${person(false)}${person(true)}${compact?'':`<nav class="widget-tabs" aria-label="演示小窗详情">${[['status','状态'],['tasks','计划'],['play','互动'],['settings','设置']].map(([key,label])=>`<button type="button" data-feature="${key}" class="${state.feature===key?'active':''}" aria-pressed="${state.feature===key}">${label}</button>`).join('')}</nav>${panel}`}</div><div class="widget-footer"><input type="date" value="${state.date}" max="${today()}" aria-label="${hero?'首屏':'功能'}演示计划日期" data-demo-date><div class="widget-themes" role="group" aria-label="小窗演示配色">${themeButtons()}</div></div>${state.quick===id?`<div class="demo-quick" role="dialog" aria-label="演示快速改状态"><div class="demo-quick-title">快速改状态<button type="button" data-action="close-quick" aria-label="关闭演示菜单">×</button></div><div class="demo-quick-grid">${ACTIVITIES.map(([key,label])=>`<button type="button" class="demo-btn demo-btn-ghost" data-activity="${key}">${label}</button>`).join('')}</div><p>这是产品演示，切换后仅更新此处示例。</p></div>`:''}</div>`;
+    rootFor(id).innerHTML=`<div class="product-widget ${compact?'compact':''}" data-theme="${state.theme}"><div class="widget-title"><span class="widget-brand"><span class="widget-logo"><img src="/icon.png" alt=""></span>伙伴打卡</span><div class="widget-buttons"><button type="button" data-action="pin" aria-label="演示切换置顶" aria-pressed="${state.pinned}">置顶</button><button type="button" data-action="expand" aria-expanded="${!compact}" title="${hero?'在下方展开产品演示':'展开或收起演示小窗'}">${compact?'展开':'收起'}</button></div></div><div class="widget-content">${person(false)}${person(true)}${compact?'':`<nav class="widget-tabs" aria-label="演示小窗详情">${[['status','状态'],['tasks','计划'],['play','互动'],['settings','设置']].map(([key,label])=>`<button type="button" data-feature="${key}" class="${state.feature===key?'active':''}" aria-pressed="${state.feature===key}">${label}</button>`).join('')}</nav>${panel}`}</div><div class="widget-footer"><input type="date" value="${state.date}" max="${today()}" aria-label="${hero?'首屏':'功能'}演示计划日期" data-demo-date><div class="widget-themes" role="group" aria-label="小窗演示配色">${themeButtons()}</div></div>${state.quick===id?`<div class="demo-quick" role="dialog" aria-label="演示快速改状态"><div class="demo-quick-title">快速改状态<button type="button" data-action="close-quick" aria-label="关闭演示菜单">×</button></div><div class="demo-quick-grid">${ACTIVITIES.map(([key,label])=>`<button type="button" class="demo-btn demo-btn-ghost" data-activity="${key}">${label}</button>`).join('')}</div><p>这是产品演示，切换后仅更新此处示例。</p></div>`:''}</div>`;
   }
   function render() {
     renderWidget('hero');renderWidget('demo');
@@ -116,11 +116,26 @@
     if((event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey)&&event.target.matches('[data-person="mine"]')){event.preventDefault();state.quick=event.target.closest('[data-widget]').dataset.widget;render();rootFor(state.quick).querySelector('.demo-quick [data-activity]')?.focus();}
   });
   render();document.getElementById('year').textContent=new Date().getFullYear();
-  fetch('/api/release').then(r=>{if(!r.ok)throw new Error('Unavailable');return r.json();}).then(release=>{
+  fetch('/api/release', {signal:AbortSignal.timeout(8000)}).then(r=>{if(!r.ok)throw new Error('Unavailable');return r.json();}).then(release=>{
     if(!/^\d+\.\d+\.\d+$/.test(release.version))return;
     document.querySelectorAll('[data-release-version]').forEach(el=>el.textContent='v'+release.version);
     if(Number.isFinite(release.size)&&release.size>0)document.querySelectorAll('[data-release-size]').forEach(el=>el.textContent=`约 ${Math.round(release.size/1000000)} MB`);
   }).catch(()=>{});
+  async function checkService() {
+    const notice = document.getElementById('service-notice');
+    try {
+      const response = await fetch('/api/health', {cache:'no-store',signal:AbortSignal.timeout(8000)});
+      const health = await response.json();
+      notice.hidden = health.sync === 'available';
+      notice.textContent = health.sync === 'available' ? '' : '同步服务暂不可用 · 产品演示与下载仍可使用';
+    } catch (_) {
+      notice.hidden = false;
+      notice.textContent = '暂时无法确认同步状态 · 可先体验演示或下载安装包';
+    }
+  }
+  void checkService();
+  window.addEventListener('online', () => void checkService());
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') void checkService(); });
   if('IntersectionObserver' in window&&!matchMedia('(prefers-reduced-motion: reduce)').matches){const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.remove('pending');observer.unobserve(entry.target);}}),{threshold:.08});for(const el of document.querySelectorAll('.section-heading,.quiet-layout,.start-steps,.download-section')){el.classList.add('reveal','pending');observer.observe(el);}}
   if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 })();
