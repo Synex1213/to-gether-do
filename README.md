@@ -65,7 +65,7 @@ Windows 构建产物在 `dist/`，GitHub 的 Windows CI 也会上传安装包。
 
 ## 数据与部署
 
-本地未设置 `DATABASE_URL` 时使用 `pg-mem`，重启后本地预览数据会清空。实际部署使用 PostgreSQL；`NODE_ENV=production` 下缺少数据库连接串会拒绝启动。
+本地未设置 `DATABASE_URL` 时使用 `pg-mem`，重启后本地预览数据会清空。实际部署使用 PostgreSQL；`NODE_ENV=production` 下缺少连接串或数据库暂时离线时，同步接口返回 503；官网和下载仍可访问，绝不回退到会丢数据的内存库。
 
 Render Web Service：
 
@@ -74,12 +74,14 @@ Render Web Service：
 | Branch | `main` |
 | Build Command | `npm ci --omit=dev` |
 | Start Command | `node src/server.js` |
-| Health Check Path | `/api/health` |
+| Health Check Path | `/healthz` |
 | `DATABASE_URL` | 实际 PostgreSQL 连接串 |
 | `JWT_SECRET` | 稳定、随机的登录密钥 |
 | `NODE_ENV` | `production` |
 
-项目直接读取环境变量，不会自动加载上传软件包中的私有配置。`/api/health` 返回 `ok` 与存储模式；正式环境应为 `postgres`。`render.yaml` 仍可用于新建 Blueprint。
+项目直接读取环境变量，不会自动加载上传软件包中的私有配置。`/healthz` 检查网站进程存活；`/api/health` 单独检查同步就绪状态，数据库不可用时返回 503 与 `sync: unavailable`。正式环境存储应为 `postgres`。数据库恢复后自动重连，无需清空数据或重新注册。`render.yaml` 仍可用于新建 Blueprint。已有手动创建的服务需要在 Render Settings 中同步修改 Health Check Path。
+
+免费数据库有期限，不适合作为长期生产存储。数据库到期、暂停或连接失败时，请先在控制台核实数据库状态和数据保留期限，恢复原实例；不要新建空库覆盖原连接。付费计划、备份和续期由账户所有者确认。
 
 ## 结构与验证
 

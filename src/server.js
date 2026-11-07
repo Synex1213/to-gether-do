@@ -2,11 +2,14 @@
 
 const express = require('express');
 const path = require('path');
-const { initDb, isMemory } = require('./db');
+const { initDb, isMemory, query } = require('./db');
+const { createReadiness, isConnectionError } = require('./readiness');
 const { createReleaseResolver } = require('./releases');
 const latestRelease = createReleaseResolver();
 
 const app = express();
+const readiness = createReadiness({ initialize:initDb, probe:() => query('SELECT 1') });
+const unavailable = (res) => res.status(503).set('Retry-After','30').json({ error:'伙伴空间暂时无法连接，请稍后重试。', code:'SERVICE_UNAVAILABLE', retryAfter:30 });
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') && req.headers.origin === 'null') {
     res.setHeader('Access-Control-Allow-Origin', 'null');
@@ -18,6 +21,8 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '1mb' }));
+app.get('/healthz', (_req, res) => res.json({ok:true,service:'website'}));
+app.get('/api/health', (_req, res) => res.status(readiness.ready ? 200 : 503).set('Cache-Control','no-store').json({ok:readiness.ready,store:isMemory?(process.env.NODE_ENV==='production'?'unconfigured':'memory'):'postgres',website:'available',sync:readiness.ready?'available':'unavailable'}));
 
 app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
@@ -27,6 +32,10 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/api', (req,res,next) => {
+  if (req.path === '/release' || readiness.ready) return next();
+  return unavailable(res);
+});
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/pair', require('./routes/pair.routes'));
 app.use('/api/tasks', require('./routes/tasks.routes'));
@@ -40,10 +49,6 @@ app.get('/download/windows', async (_req, res, next) => {
   try { res.set('Cache-Control','no-store').redirect(302, (await latestRelease()).url); } catch (err) { next(err); }
 });
 
-app.get('/api/health', (req, res) =>
-  res.json({ ok: true, store: isMemory ? 'memory' : 'postgres' })
-);
-
 const publicDir = path.join(__dirname, '..', 'public');
 app.use('/widget', express.static(path.join(__dirname, '..', 'widget')));
 app.use(express.static(publicDir));
@@ -55,6 +60,7 @@ app.get(/^(?!\/api).*/, (req, res) => {
 
 // 统一错误处理
 app.use((err, req, res, next) => {
+  if (isConnectionError(err)) { readiness.unavailable(err); return unavailable(res); }
   console.error(err);
   res.status(err.status || 500).json({ error: err.message || '服务器开小差了' });
 });
@@ -62,21 +68,15 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 
-module.exports = initDb()
-  .then(() => {
-    const server = app.listen(port, host, () => {
-      console.log(
-        `Couple Connect running at http://${host}:${port} (store: ${
-          isMemory ? 'memory' : 'postgres'
-        })`
-      );
-    });
-    return new Promise((resolve, reject) => {
-      server.once('listening', () => resolve(server));
-      server.once('error', reject);
-    });
-  })
-  .catch((e) => {
-    console.error('启动失败：', e);
-    process.exit(1);
+// Bind HTTP before initializing PostgreSQL: the website and downloads must stay
+// available while the stateful service reconnects. Never use an empty memory DB
+// as a production fallback.
+module.exports = new Promise((resolve, reject) => {
+  const server = app.listen(port, host);
+  server.once('listening', () => {
+    console.log(`Couple Connect running at http://${host}:${server.address().port} (store: ${isMemory?'memory':'postgres'})`);
+    void readiness.start().then(() => resolve(server));
   });
+  server.once('error', reject);
+  server.once('close', () => readiness.stop());
+});

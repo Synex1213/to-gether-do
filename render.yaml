@@ -3,8 +3,9 @@ services:
     name: couple-connect
     runtime: node
     plan: free
-    buildCommand: npm install --omit=dev
+    buildCommand: npm ci --omit=dev
     startCommand: node src/server.js
+    healthCheckPath: /healthz
     autoDeploy: true
     envVars:
       - key: NODE_ENV
