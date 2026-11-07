@@ -54,7 +54,11 @@ jobs:
             }
             $tagSha = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' 2>$null
             if ($LASTEXITCODE -eq 0) {
-              if ($tagSha -ne $env:GITHUB_SHA) { throw "Existing $tag points to a different commit; increment the app version instead of moving the tag." }
+              if ($tagSha -ne $env:GITHUB_SHA) {
+                'publish=false' >> $env:GITHUB_OUTPUT
+                Write-Host "Existing $tag is immutable. Use workflow_dispatch with that tag to repair its assets, or increment the app version."
+                exit 0
+              }
             } else {
               gh api --method POST "repos/$env:GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$tag" -f "sha=$env:GITHUB_SHA"
               if ($LASTEXITCODE -ne 0) { throw "Could not create $tag at the tested main commit." }
@@ -70,7 +74,7 @@ jobs:
         if: steps.release.outputs.publish == 'true'
         run: npm test
 
-      - name: Build and upload NSIS installer and latest.yml
+      - name: Build NSIS installer and update metadata
         if: steps.release.outputs.publish == 'true'
         shell: pwsh
         env:
@@ -95,24 +99,62 @@ jobs:
             Remove-Item Env:WIN_CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
             Write-Host 'No signing certificate configured; packaging an unsigned NSIS installer.'
           }
-          npx electron-builder --win nsis --publish always
+          npx electron-builder --win nsis --publish never
           if ($LASTEXITCODE -ne 0) {
             throw "electron-builder failed with exit code $LASTEXITCODE"
           }
 
-      - name: Publish release only after all assets have uploaded
+      - name: Upload and verify all assets before publishing
         if: steps.release.outputs.publish == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = node -p "require('./package.json').version"
+          $installer = "couple-connect-setup-$version.exe"
+          $names = @($installer, "$installer.blockmap", 'latest.yml')
+          foreach ($name in $names) {
+            if (-not (Test-Path "dist/$name")) { throw "Required release file is missing: $name" }
+          }
+          $sha512 = [Convert]::ToBase64String([Convert]::FromHexString((Get-FileHash "dist/$installer" -Algorithm SHA512).Hash))
+          if (-not (Get-Content 'dist/latest.yml' -Raw).Contains($sha512)) { throw 'Update manifest does not match the installer.' }
+
+          # Select one canonical release by ID. Earlier concurrent publishing
+          # could create two same-tag drafts and split the files between them.
+          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list releases.' }
+          $release = $releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Sort-Object draft, id | Select-Object -First 1
+          if (-not $release) {
+            $payload = @{tag_name=$env:RELEASE_TAG; name="伙伴打卡 $version"; draft=$true} | ConvertTo-Json
+            $release = $payload | gh api --method POST "repos/$env:GITHUB_REPOSITORY/releases" --input - | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the release.' }
+          }
+          $releaseId = $release.id
+          $existingInstaller = $release.assets | Where-Object name -eq $installer | Select-Object -First 1
+          if (-not $release.draft -and $existingInstaller) {
+            $digest = 'sha256:' + (Get-FileHash "dist/$installer" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($existingInstaller.digest -ne $digest) { throw 'Published installer differs. Increment the version instead of overwriting it.' }
+          }
+          foreach ($name in $names) {
+            $old = $release.assets | Where-Object name -eq $name | Select-Object -First 1
+            $digest = 'sha256:' + (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($old -and $old.digest -eq $digest) { continue }
+            if ($old) {
+              gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($old.id)"
+              if ($LASTEXITCODE -ne 0) { throw "Could not replace incomplete generated asset: $name" }
+            }
+            $uploadUri = "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$releaseId/assets?name=$([Uri]::EscapeDataString($name))"
+            $uploaded = Invoke-RestMethod -Method Post -Uri $uploadUri -Headers @{Authorization="Bearer $env:GH_TOKEN"; Accept='application/vnd.github+json'} -ContentType 'application/octet-stream' -InFile "dist/$name"
+            if ($uploaded.size -ne (Get-Item "dist/$name").Length) { throw "Incomplete upload: $name" }
+          }
+          $verified = gh api "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not verify release assets.' }
+          foreach ($name in $names) {
+            $asset = $verified.assets | Where-Object name -eq $name | Select-Object -First 1
+            if (-not $asset -or $asset.state -ne 'uploaded' -or $asset.size -le 0) { throw "Release asset is unavailable: $name" }
+          }
           $notes = "docs/releases/$version.md"
-          if (Test-Path $notes) {
-            gh release edit $env:RELEASE_TAG --title "伙伴打卡 $version" --notes-file $notes
-            if ($LASTEXITCODE -ne 0) { throw 'Updating release notes failed.' }
-          }
-          gh release edit $env:RELEASE_TAG --draft=false
-          if ($LASTEXITCODE -ne 0) {
-            throw "Publishing release $env:RELEASE_TAG failed."
-          }
+          $body = if (Test-Path $notes) { Get-Content $notes -Raw } else { "伙伴打卡 $version" }
+          @{draft=$false; name="伙伴打卡 $version"; body=$body} | ConvertTo-Json | gh api --method PATCH "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" --input - --silent
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified release.' }
+          Write-Host "Published $env:RELEASE_TAG with the installer, blockmap and verified update manifest."
