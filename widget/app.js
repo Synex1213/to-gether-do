@@ -13,6 +13,13 @@ let windowMode = '';
 const DURATIONS = [[0, '不限时间'], [30, '30 分钟'], [60, '1 小时'], [120, '2 小时']];
 let welcomeShown = false;
 let statusSaving = false;
+let authSaving = false;
+let taskSaving = false;
+let statusExpiryTimer;
+let refreshTimer;
+let failures = 0;
+let nextRetryAfter = 0;
+let sessionGeneration = 0;
 
 
 const state = {
@@ -77,10 +84,7 @@ async function api(path, opts = {}) {
   const base = ((state.config && state.config.apiBase) || '').replace(/\/$/, '');
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
-  const res = await fetch(base + path, { ...opts, headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `请求失败 (${res.status})`), { status: res.status });
-  return data;
+  return CompanionConnection.requestJson(base + path, { ...opts, headers });
 }
 
 async function loadConfig() {
@@ -117,6 +121,9 @@ function applyChrome() {
   document.documentElement.dataset.theme = state.config.theme;
   document.body.classList.toggle('web-host', !IS_NATIVE);
   document.body.classList.toggle('position-locked', IS_NATIVE && state.config.positionLocked);
+  const connection = document.getElementById('connection-state');
+  connection.hidden = !state.syncError;
+  connection.title = state.syncMessage || '同步暂不可用，会自动重试';
   const compact = state.phase === 'main' && state.config.compact !== false;
   const mode = ['main','loading'].includes(state.phase) ? (state.config.compact !== false ? 'compact' : 'expanded') : 'auth';
   document.body.classList.toggle('is-compact', compact);
@@ -158,10 +165,11 @@ async function openPanel(panel) {
   render();
 }
 function render() {
+  clearTimeout(statusExpiryTimer);
   if (state.token && !state.me && state.config?.apiBase) {
     state.phase = 'loading';
     applyChrome();
-    content.innerHTML = `<div class="card" role="status">${state.syncError ? '暂时无法连接，请检查网络后重试' : '正在连接伙伴空间…'}<button class="btn btn-block" id="sync-retry">重试连接</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button></div>`;
+    content.innerHTML = `<div class="card" role="status"><strong>${state.syncError ? '连接暂不可用' : '正在连接伙伴空间…'}</strong><p class="muted">${state.syncError ? escapeHtml(state.syncMessage || '正在自动重试，账号无需重新注册。') : '首次连接可能需要稍等片刻。'}</p><button class="btn btn-block" id="sync-retry">重试连接</button><button class="btn btn-ghost btn-block" id="logout">退出登录</button></div>`;
     return;
   }
   if (!state.config || !state.config.apiBase) state.phase = 'setup';
@@ -202,9 +210,9 @@ function renderAuth() {
         <button class="tab ${state.authTab === 'login' ? 'active' : ''}" data-tab="login">登录</button>
         <button class="tab ${state.authTab === 'register' ? 'active' : ''}" data-tab="register">注册</button>
       </div>
-      <div class="field"><label class="label">用户名</label><input class="input" id="auth-username" placeholder="2-20 位"></div>
-      <div class="field"><label class="label">密码</label><input class="input" id="auth-password" type="password" placeholder="至少 6 位"></div>
-      ${state.authTab === 'register' ? '<div class="field"><label class="label">昵称</label><input class="input" id="auth-display" placeholder="显示名"></div>' : ''}
+      <div class="field"><label class="label" for="auth-username">用户名</label><input class="input" id="auth-username" autocomplete="username" maxlength="20" placeholder="2–20 位中英文、数字或下划线"></div>
+      <div class="field"><label class="label" for="auth-password">密码</label><input class="input" id="auth-password" type="password" autocomplete="${state.authTab === 'register' ? 'new-password' : 'current-password'}" placeholder="至少 6 位"></div>
+      ${state.authTab === 'register' ? '<div class="field"><label class="label" for="auth-display">昵称</label><input class="input" id="auth-display" maxlength="24" autocomplete="nickname" placeholder="伙伴看到的名字"></div>' : ''}
       <button class="btn btn-block" id="auth-submit">${state.authTab === 'login' ? '登录' : '注册'}</button>
     </div>
   `;
@@ -235,6 +243,9 @@ function renderPair() {
 
 function renderMain() {
   renderPreservingDrafts(content, renderMainContent);
+  // Expiry remains accurate while offline; no network request is needed.
+  const deadlines = [state.myStatus, state.partnerStatus].flatMap(st => [Date.parse(st?.expires_at), Date.parse(st?.updated_at) + 7200000]).filter(time => Number.isFinite(time) && time > Date.now());
+  if (deadlines.length) statusExpiryTimer = setTimeout(() => render(), Math.min(...deadlines) - Date.now() + 30);
   if (!welcomeShown && state.config.onboardingSeen !== true) {
     welcomeShown = true;
     showWelcome();
@@ -286,7 +297,7 @@ function glancePerson(isMine) {
   const time = expired ? '已到期' : relativeStatusTime(st.updated_at).replace('更新', '');
   return `<button class="glance-person ${stale ? 'is-stale' : ''}" data-person="${isMine ? 'mine' : 'partner'}" data-open-panel="${isMine ? 'status' : 'tasks'}" aria-label="${escapeHtml(name)}${isMine ? '（我）' : ''}的状态" title="${escapeHtml(name)} · ${escapeHtml(activity)} · ${expired ? '有效期已结束，待更新' : escapeHtml(focus)} · ${relativeStatusTime(st.updated_at)}${stale ? '（上次分享，可能已变化）' : ''}${isMine ? '；右键快速改状态' : ''}">
     <span class="person-avatar" aria-hidden="true">${escapeHtml((name || '?')[0])}</span>
-    <span class="person-summary"><span class="person-top"><span class="person-name">${escapeHtml(name)}${isMine ? ' · 我' : ''}</span><span class="online-dot ${st.online ? 'online' : ''}" title="最近是否使用应用"></span><span class="person-time">${time}</span></span><span class="person-activity-row"><span class="current-activity">${expired ? '待更新 · ' : stale ? '上次 · ' : ''}${escapeHtml(activity)}</span><span class="person-focus">${stale ? '' : escapeHtml(focus)}</span></span></span>
+    <span class="person-summary"><span class="person-top"><span class="person-name">${escapeHtml(name)}${isMine ? ' · 我' : ''}</span><span class="online-dot ${st.online && !state.syncError ? 'online' : ''}" title="最近是否使用应用"></span><span class="person-time">${time}</span></span><span class="person-activity-row"><span class="current-activity">${expired ? '待更新 · ' : stale ? '上次 · ' : ''}${escapeHtml(activity)}</span><span class="person-focus">${stale ? '' : escapeHtml(focus)}</span></span></span>
   </button>`;
 }
 function renderMainContent() {
@@ -297,7 +308,7 @@ function renderMainContent() {
   const isToday = state.date === today();
   const expanded = state.config.compact === false;
   content.innerHTML = `
-    ${state.syncError ? '<div class="sync-warning" role="status">同步暂不可用 · 显示上次近况 <button class="btn btn-sm btn-ghost" id="sync-retry">重试</button></div>' : ''}
+    ${state.syncError && expanded ? '<div class="sync-warning" role="status">同步暂不可用 · 显示上次近况 <button class="btn btn-sm btn-ghost" id="sync-retry">重试</button></div>' : ''}
     <div class="glance-list">${glancePerson(false)}${glancePerson(true)}</div>
     ${expanded ? `
     <nav class="panel-tabs" aria-label="小窗详情">${[['status','状态'],['tasks','计划'],['play','互动'],['settings','设置']].map(([key,label]) => `<button data-panel="${key}" class="${state.panel === key ? 'active' : ''}" aria-pressed="${state.panel === key}">${label}</button>`).join('')}</nav>
@@ -369,12 +380,15 @@ function renderTaskItem(t) {
 // ===== 数据加载 =====
 async function refreshAll() {
   if (state.refreshing) { state.refreshQueued = true; return; }
+  clearTimeout(refreshTimer);
   state.refreshing = true;
+  const generation = sessionGeneration;
   const requestedDate = state.date;
   try {
     const meRes = await api('/api/auth/me');
     const pairRes = await api('/api/pair/');
-    if (state.pairInfo?.pairId !== pairRes.pairId) { content.innerHTML = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null; state.statusDraft = ''; state.taskDraft = ''; }
+    if (generation !== sessionGeneration) return;
+    if (state.pairInfo?.pairId !== pairRes.pairId) { state.tasks = []; state.myStatus = null; state.partnerStatus = null; state.slackStats = {}; content.innerHTML = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null; state.statusDraft = ''; state.taskDraft = ''; }
     state.me = meRes.user;
     state.pairInfo = pairRes;
     state.partner = pairRes.partner || null;
@@ -382,19 +396,25 @@ async function refreshAll() {
       const [tasksRes, statusRes, slackRes] = await Promise.all([
         api('/api/tasks?date=' + requestedDate), api('/api/status'), api('/api/slack/stats'),
       ]);
+      if (generation !== sessionGeneration) return;
       if (requestedDate === state.date) state.tasks = tasksRes.tasks || [];
       state.myStatus = statusRes.mine;
       state.partnerStatus = statusRes.theirs;
       state.slackStats = slackRes.stats || {};
     } else { state.tasks = []; state.myStatus = null; state.partnerStatus = null; }
-    state.syncError = false;
+    state.syncError = false; failures = 0; nextRetryAfter = 0;
     render();
   } catch (e) {
+    if (generation !== sessionGeneration) return;
+    failures++; nextRetryAfter = e.retryAfter || 0; state.syncMessage = e.message;
     if (e.status === 401) { state.token = ''; localStorage.removeItem('token'); localStorage.removeItem('cc_token'); state.pairInfo = null; render(); }
-    else { const firstFailure = !state.syncError; state.syncError = true; if (firstFailure) toast('暂时无法同步，请检查网络后重试'); render(); }
+    else { const firstFailure = !state.syncError; state.syncError = true; if (firstFailure) toast(e.message || '同步暂不可用，会自动重试'); render(); }
   } finally {
     state.refreshing = false;
-    if (state.refreshQueued || requestedDate !== state.date) { state.refreshQueued = false; await refreshAll(); }
+    const queued = state.refreshQueued || requestedDate !== state.date;
+    state.refreshQueued = false;
+    if (queued && !state.syncError && state.token) void refreshAll();
+    else scheduleRefresh();
   }
 }
 
@@ -415,6 +435,7 @@ content.addEventListener('click', async (e) => {
     return;
   }
   if (t.id === 'logout') {
+    sessionGeneration++; clearTimeout(refreshTimer); state.syncError = false;
     state.token = ''; localStorage.removeItem('token'); localStorage.removeItem('cc_token'); state.me = null; state.pairInfo = null; state.statusDraft = ''; state.taskDraft = ''; state.reviewDrafts = {}; state.reviewOpenTaskId = null;
     content.innerHTML = ''; render(); return;
   }
@@ -443,9 +464,12 @@ content.addEventListener('click', async (e) => {
   if (t.dataset.tab) { state.authTab = t.dataset.tab; render(); return; }
 
   if (t.id === 'auth-submit') {
+    if (authSaving) return;
     const username = document.getElementById('auth-username').value.trim();
     const password = document.getElementById('auth-password').value;
     if (!username || !password) { toast('请填写用户名和密码'); return; }
+    if (state.authTab === 'register' && (!/^[A-Za-z0-9_一-龥]{2,20}$/.test(username) || password.length < 6)) { toast('用户名需 2–20 位，密码至少 6 位'); return; }
+    authSaving = true; t.disabled = true; t.textContent = '正在连接…';
     try {
       let r;
       if (state.authTab === 'login') {
@@ -454,12 +478,14 @@ content.addEventListener('click', async (e) => {
         const displayName = (document.getElementById('auth-display')?.value || '').trim() || username;
         r = await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password, displayName }) });
       }
+      sessionGeneration++; state.syncError = false;
       state.token = r.token;
       localStorage.setItem('token', r.token);
       state.me = r.user;
       toast('成功');
       await refreshAll();
     } catch (err) { toast(err.message); }
+    finally { authSaving = false; t.disabled = false; t.textContent = state.authTab === 'login' ? '登录' : '注册'; }
     return;
   }
 
@@ -549,7 +575,7 @@ content.addEventListener('input', e => {
 });
 
 content.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
+  if (e.key !== 'Enter' || e.isComposing) return;
   if (e.target.id === 'task-input') addTask();
   if (e.target.id === 'current-activity') document.getElementById('activity-save')?.click();
   if (e.target.id === 'auth-username' || e.target.id === 'auth-password' || e.target.id === 'auth-display') {
@@ -560,14 +586,18 @@ content.addEventListener('keydown', (e) => {
 
 async function addTask() {
   const input = document.getElementById('task-input');
-  if (!input || state.date !== today()) return;
+  if (!input || taskSaving || state.date !== today()) return;
   const text = input.value.trim();
   if (!text) return;
+  taskSaving = true;
+  const button = document.getElementById('task-add');
+  if (button) button.disabled = true;
   try {
     await api('/api/tasks', { method: 'POST', body: JSON.stringify({ content: text, date: state.date }) });
-    input.value = ''; state.taskDraft = '';
+    if (state.taskDraft.trim() === text) { input.value = ''; state.taskDraft = ''; }
     await refreshAll();
   } catch (err) { toast(err.message); }
+  finally { taskSaving = false; if(button) button.disabled = false; }
 }
 
 // 标题栏与角落控件
@@ -637,9 +667,20 @@ document.getElementById('quick-status').addEventListener('click', async e => {
 });
 if (IS_NATIVE) bridge.onConfigChanged?.(config => { state.config = { ...state.config, ...config }; applyChrome(); });
 
-// 轮询
-setInterval(() => { if (state.token && document.visibilityState === 'visible') refreshAll(); }, 6000);
-document.addEventListener('visibilitychange', () => { if (state.token && document.visibilityState === 'visible') void refreshAll(); });
+// One scheduled read at a time; failed writes are never replayed automatically.
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  if (!document || !state.token || document.visibilityState !== 'visible' || navigator.onLine === false) return;
+  refreshTimer = setTimeout(() => void refreshAll(), CompanionConnection.retryDelay(failures, nextRetryAfter));
+}
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(refreshTimer);
+  if (state.token && document.visibilityState === 'visible') void refreshAll();
+});
+window.addEventListener('online', () => { if (state.token) void refreshAll(); });
+window.addEventListener('offline', () => {
+  clearTimeout(refreshTimer); state.syncError = true; state.syncMessage = '网络已断开，恢复后自动重连'; render();
+});
 
 // 启动
 (async () => {

@@ -1,6 +1,6 @@
 'use strict';
-const CACHE = 'companion-website-v1';
-const APP_SHELL = ['/', '/index.html', '/website.css', '/website.js', '/icon.png', '/app/', '/widget/styles.css', '/widget/app.js', '/widget/ui-state.js', '/widget/icon.png', '/manifest.webmanifest'];
+const CACHE = 'companion-website-v2';
+const APP_SHELL = ['/', '/index.html', '/website.css', '/website.js', '/icon.png', '/app/', '/widget/styles.css', '/widget/app.js', '/widget/connection.js', '/widget/ui-state.js', '/widget/icon.png', '/manifest.webmanifest'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {

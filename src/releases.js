@@ -15,7 +15,7 @@ function createReleaseResolver(fetchRelease = global.fetch, now = Date.now) {
         const expected = `https://github.com/Synex1213/to-gether-do/releases/download/v${version}/couple-connect-setup-${version}.exe`;
         if (release.draft || release.prerelease || !/^\d+\.\d+\.\d+$/.test(version) || asset?.browser_download_url !== expected || !(asset.size > 0)) throw new Error('Invalid release');
         cached = { version, size:asset.size, url:expected, page:FALLBACK.page };
-        validUntil = now() + 10 * 60000;
+        validUntil = now() + 2 * 60000;
       } catch (_) { cached = cached || FALLBACK; validUntil = now() + 60000; }
       return cached;
     })().finally(() => { pending = null; });

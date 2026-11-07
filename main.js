@@ -30,6 +30,16 @@ function writeConfig(cfg) {
   }
 }
 
+// Original transparent artwork contains large margins. Fit its visible mark at
+// render time, retaining the untouched source and alpha channel.
+function appIcon(size) {
+  let icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png'));
+  if (icon.getSize().width === 2048 && icon.getSize().height === 2048) {
+    icon = icon.crop({x:360,y:360,width:1350,height:1350});
+  }
+  return icon.resize({width:size,height:size});
+}
+
 function createWindow() {
   const cfg = readConfig();
   const saved = cfg.windowBounds;
@@ -39,12 +49,13 @@ function createWindow() {
     ...windowBounds(cfg.compact ? 'compact' : 'expanded', display.workArea, validSaved ? saved : undefined),
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     movable: !cfg.positionLocked,
     alwaysOnTop: cfg.alwaysOnTop !== false,
     skipTaskbar: false,
     show: false,
-    icon: path.join(__dirname, 'build', 'icon.png'),
+    icon: appIcon(256),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -130,7 +141,7 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 20, height: 20 }));
+  tray = new Tray(appIcon(20));
   tray.setToolTip('伙伴打卡');
   updateTrayMenu();
   tray.on('click', () => {

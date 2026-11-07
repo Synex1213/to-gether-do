@@ -11,7 +11,7 @@
 <body>
   <div class="app">
     <header class="titlebar">
-      <div class="title-left"><img src="icon.png" class="title-icon" alt=""><span class="title-text">伙伴打卡</span></div>
+      <div class="title-left"><span class="brand-mark"><img src="icon.png" class="title-icon" alt=""></span><span class="title-text">伙伴打卡</span><span class="connection-state" id="connection-state" hidden aria-label="同步暂不可用" role="status">·</span></div>
       <div class="title-actions">
         <button class="win-btn pin-btn" id="btn-pin" title="取消置顶" aria-label="切换置顶" aria-pressed="true">置顶</button>
         <button class="win-btn mode-btn" id="btn-mode" title="展开详情" aria-expanded="false">展开</button>
@@ -29,6 +29,7 @@
     <aside class="small-overlay" id="onboarding" role="note" hidden></aside>
   </div>
   <script src="ui-state.js"></script>
+  <script src="connection.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -8,7 +8,11 @@ const { createReleaseResolver } = require('./releases');
 const latestRelease = createReleaseResolver();
 
 const app = express();
-const readiness = createReadiness({ initialize:initDb, probe:() => query('SELECT 1') });
+const initialize = async () => {
+  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) throw Object.assign(new Error('Authentication is not configured'), {code:'CONFIGURATION_UNAVAILABLE'});
+  await initDb();
+};
+const readiness = createReadiness({ initialize, probe:() => query('SELECT 1') });
 const unavailable = (res) => res.status(503).set('Retry-After','30').json({ error:'伙伴空间暂时无法连接，请稍后重试。', code:'SERVICE_UNAVAILABLE', retryAfter:30 });
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') && req.headers.origin === 'null') {
@@ -61,8 +65,9 @@ app.get(/^(?!\/api).*/, (req, res) => {
 // 统一错误处理
 app.use((err, req, res, next) => {
   if (isConnectionError(err)) { readiness.unavailable(err); return unavailable(res); }
-  console.error(err);
-  res.status(err.status || 500).json({ error: err.message || '服务器开小差了' });
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+  if (status === 500) console.error('请求处理失败', {code:err.code || 'INTERNAL_ERROR'});
+  res.status(status).json({ error: status === 500 ? '服务器暂时无法处理，请稍后重试' : err.message });
 });
 
 const port = Number(process.env.PORT || 3000);
